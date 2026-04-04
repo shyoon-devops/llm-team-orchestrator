@@ -1,0 +1,21 @@
+{
+  "hooks": {
+    "pre-commit": [
+      {
+        "command": "cd /home/yoon/repository/llm-team-orchestrator && uv run ruff check src/ tests/ --fix",
+        "description": "Auto-fix lint issues before commit"
+      },
+      {
+        "command": "cd /home/yoon/repository/llm-team-orchestrator && uv run ruff format src/ tests/",
+        "description": "Auto-format before commit"
+      }
+    ]
+  },
+  "permissions": {
+    "allow": [
+      "Bash(uv run *)",
+      "Bash(cd /home/yoon/repository/llm-team-orchestrator*)",
+      "Bash(git *)"
+    ]
+  }
+}
