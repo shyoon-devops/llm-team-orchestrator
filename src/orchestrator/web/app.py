@@ -160,11 +160,19 @@ class AppState:
                             task_id=task_id,
                         )
 
+            # Merge worktree branch into target (if pipeline succeeded)
+            merged = False
+            if worktree_mgr and result["status"] == "reviewed":
+                with contextlib.suppress(Exception):
+                    merged = await worktree_mgr.merge_to_target(task_id, "pipeline")
+
             status = self.pipelines[task_id]
             status.status = (
                 TaskStatus.COMPLETED if result["status"] == "reviewed" else TaskStatus.FAILED
             )
             status.error = result.get("error", "")
+            if worktree_mgr and not merged and result["status"] == "reviewed":
+                status.error = "merge conflict"
             status.artifacts = self.artifact_store.list_artifacts()
             status.messages = result.get("messages", [])
 
@@ -174,7 +182,11 @@ class AppState:
                     if status.status == TaskStatus.COMPLETED
                     else EventType.PIPELINE_FAILED,
                     task_id=task_id,
-                    data={"task_id": task_id, "status": status.status.value},
+                    data={
+                        "task_id": task_id,
+                        "status": status.status.value,
+                        "merged": merged,
+                    },
                 )
             )
         except Exception as e:

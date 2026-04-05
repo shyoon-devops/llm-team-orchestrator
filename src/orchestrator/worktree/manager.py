@@ -64,12 +64,25 @@ class WorktreeManager:
         await self._run_git("branch", "-D", branch)
         logger.info("worktree_cleaned", branch=branch, path=path)
 
-    async def merge_to_target(self, task_id: str, role: str, target_branch: str = "main") -> bool:
+    async def _detect_default_branch(self) -> str:
+        """Detect the default branch (main or master)."""
+        try:
+            result = await self._run_git("symbolic-ref", "--short", "HEAD")
+            return result.strip() or "main"
+        except WorktreeError:
+            return "main"
+
+    async def merge_to_target(
+        self, task_id: str, role: str, target_branch: str | None = None
+    ) -> bool:
         """Merge the worktree branch into target.
 
         Returns True on success, False on conflict.
         """
         branch = self._branch_name(task_id, role)
+
+        if target_branch is None:
+            target_branch = await self._detect_default_branch()
 
         await self._run_git("checkout", target_branch)
         try:
