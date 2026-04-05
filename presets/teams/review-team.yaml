@@ -1,0 +1,28 @@
+# presets/teams/review-team.yaml
+name: review-team
+description: "코드 리뷰 팀: 보안 감사 + 코드 리뷰를 병렬 수행"
+
+agents:
+  auditor:
+    preset: security-auditor
+    overrides:
+      limits:
+        timeout: 600
+  reviewer:
+    preset: reviewer
+    overrides:
+      limits:
+        timeout: 300
+
+tasks:
+  security-audit:
+    description: "코드베이스 보안 취약점 감사"
+    agent: auditor
+    depends_on: []
+  code-review:
+    description: "코드 품질, 가독성, 컨벤션 리뷰"
+    agent: reviewer
+    depends_on: []
+
+workflow: parallel
+synthesis_strategy: checklist

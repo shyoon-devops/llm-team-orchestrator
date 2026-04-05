@@ -1,0 +1,40 @@
+# presets/teams/feature-team.yaml
+name: feature-team
+description: "기능 구현 팀: 설계 → 구현 → 리뷰 → 테스트"
+
+agents:
+  architect:
+    preset: architect
+  implementer:
+    preset: implementer
+    overrides:
+      limits:
+        timeout: 600
+  reviewer:
+    preset: reviewer
+  tester:
+    preset: tester
+
+tasks:
+  design:
+    description: "아키텍처 설계 및 인터페이스 정의"
+    agent: architect
+    depends_on: []
+  implement:
+    description: "설계에 따른 코드 구현"
+    agent: implementer
+    depends_on:
+      - design
+  review:
+    description: "구현 코드 리뷰"
+    agent: reviewer
+    depends_on:
+      - implement
+  test:
+    description: "단위 테스트 및 통합 테스트 작성"
+    agent: tester
+    depends_on:
+      - implement
+
+workflow: dag
+synthesis_strategy: narrative

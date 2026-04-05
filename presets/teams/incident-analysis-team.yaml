@@ -1,0 +1,25 @@
+# presets/teams/incident-analysis-team.yaml
+name: incident-analysis-team
+description: "프로덕션 인시던트 분석 팀 — ELK 로그 분석을 통해 종합 보고서 생성"
+
+agents:
+  elk:
+    preset: elk-analyst
+    overrides:
+      limits:
+        timeout: 180
+      persona:
+        constraints:
+          - "최근 30분 로그에 집중한다"
+          - "5xx 에러, timeout, connection refused 패턴을 우선 분석한다"
+
+tasks:
+  log-analysis:
+    description: |
+      ELK에서 에러 로그를 분석한다.
+      대상: 관련 서비스의 에러 패턴, 빈도, 타임라인을 파악한다.
+    agent: elk
+    depends_on: []
+
+workflow: parallel
+synthesis_strategy: structured

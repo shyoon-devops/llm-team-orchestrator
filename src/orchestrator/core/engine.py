@@ -199,13 +199,67 @@ class OrchestratorEngine:
         """등록된 모든 팀 프리셋을 반환한다."""
         return self._preset_registry.list_team_presets()
 
-    def save_agent_preset(self, preset: AgentPreset) -> None:
-        """에이전트 프리셋을 저장한다."""
-        self._preset_registry.save_agent_preset(preset)
+    def load_agent_preset(self, name: str) -> AgentPreset:
+        """이름으로 에이전트 프리셋을 조회한다.
 
-    def save_team_preset(self, preset: TeamPreset) -> None:
-        """팀 프리셋을 저장한다."""
-        self._preset_registry.save_team_preset(preset)
+        Args:
+            name: 프리셋 이름.
+
+        Returns:
+            프리셋 인스턴스.
+
+        Raises:
+            KeyError: 프리셋이 존재하지 않는 경우.
+        """
+        return self._preset_registry.load_agent_preset(name)
+
+    def load_team_preset(self, name: str) -> TeamPreset:
+        """이름으로 팀 프리셋을 조회한다.
+
+        Args:
+            name: 팀 프리셋 이름.
+
+        Returns:
+            팀 프리셋 인스턴스.
+
+        Raises:
+            KeyError: 프리셋이 존재하지 않는 경우.
+        """
+        return self._preset_registry.load_team_preset(name)
+
+    def save_agent_preset(
+        self,
+        preset: AgentPreset,
+        *,
+        overwrite: bool = True,
+    ) -> None:
+        """에이전트 프리셋을 저장한다.
+
+        Args:
+            preset: 저장할 프리셋.
+            overwrite: 기존 프리셋 덮어쓰기 여부.
+
+        Raises:
+            ValueError: overwrite=False이고 이미 존재하는 경우.
+        """
+        self._preset_registry.save_agent_preset(preset, overwrite=overwrite)
+
+    def save_team_preset(
+        self,
+        preset: TeamPreset,
+        *,
+        overwrite: bool = True,
+    ) -> None:
+        """팀 프리셋을 저장한다.
+
+        Args:
+            preset: 저장할 프리셋.
+            overwrite: 기존 프리셋 덮어쓰기 여부.
+
+        Raises:
+            ValueError: overwrite=False이고 이미 존재하는 경우.
+        """
+        self._preset_registry.save_team_preset(preset, overwrite=overwrite)
 
     def get_board_state(self) -> dict[str, Any]:
         """칸반 보드의 현재 상태를 반환한다."""

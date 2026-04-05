@@ -2,12 +2,22 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from orchestrator.api.deps import get_engine
+from orchestrator.core.presets.models import (
+    AgentLimits,
+    AgentPreset,
+    MCPServerDef,
+    PersonaDef,
+    TeamAgentDef,
+    TeamPreset,
+    TeamTaskDef,
+    ToolAccess,
+)
 
 router = APIRouter(prefix="/api")
 
@@ -32,6 +42,35 @@ class ErrorResponse(BaseModel):
     code: str
     message: str
     details: dict[str, Any] = Field(default_factory=dict)
+
+
+class CreateAgentPresetRequest(BaseModel):
+    """에이전트 프리셋 생성 요청."""
+
+    name: str = Field(..., min_length=1, max_length=100, pattern=r"^[a-z0-9][a-z0-9\-]*$")
+    description: str = Field(default="", max_length=500)
+    tags: list[str] = Field(default_factory=list)
+    persona: PersonaDef
+    execution_mode: Literal["cli", "mcp"] = Field(default="cli")
+    preferred_cli: Literal["claude", "codex", "gemini"] | None = Field(default="claude")
+    fallback_cli: list[Literal["claude", "codex", "gemini"]] = Field(default_factory=list)
+    model: str | None = Field(default=None)
+    tools: ToolAccess = Field(default_factory=ToolAccess)
+    mcp_servers: dict[str, MCPServerDef] = Field(default_factory=dict)
+    limits: AgentLimits = Field(default_factory=AgentLimits)
+
+
+class CreateTeamPresetRequest(BaseModel):
+    """팀 프리셋 생성 요청."""
+
+    name: str = Field(..., min_length=1, max_length=100, pattern=r"^[a-z0-9][a-z0-9\-]*$")
+    description: str = Field(default="", max_length=500)
+    agents: dict[str, TeamAgentDef] = Field(..., min_length=1)
+    tasks: dict[str, TeamTaskDef] = Field(..., min_length=1)
+    workflow: Literal["parallel", "sequential", "dag"] = Field(default="parallel")
+    synthesis_strategy: Literal["narrative", "structured", "checklist"] = Field(
+        default="narrative"
+    )
 
 
 # ============================================================
@@ -177,7 +216,33 @@ async def list_agent_presets(request: Request) -> dict[str, Any]:
     """에이전트 프리셋 목록을 조회한다."""
     engine = get_engine(request)
     presets = engine.list_agent_presets()
-    return {"items": [p.model_dump() for p in presets]}
+    return {"presets": [p.model_dump() for p in presets]}
+
+
+@router.get("/presets/agents/{name}")
+async def get_agent_preset(name: str, request: Request) -> dict[str, Any]:
+    """에이전트 프리셋 상세를 조회한다."""
+    engine = get_engine(request)
+    try:
+        preset = engine.load_agent_preset(name)
+        return preset.model_dump()
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+
+@router.post("/presets/agents", status_code=201)
+async def create_agent_preset(
+    body: CreateAgentPresetRequest,
+    request: Request,
+) -> dict[str, Any]:
+    """새로운 에이전트 프리셋을 생성한다."""
+    engine = get_engine(request)
+    preset = AgentPreset.model_validate(body.model_dump())
+    try:
+        engine.save_agent_preset(preset, overwrite=False)
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
+    return preset.model_dump()
 
 
 @router.get("/presets/teams")
@@ -185,7 +250,33 @@ async def list_team_presets(request: Request) -> dict[str, Any]:
     """팀 프리셋 목록을 조회한다."""
     engine = get_engine(request)
     presets = engine.list_team_presets()
-    return {"items": [p.model_dump() for p in presets]}
+    return {"presets": [p.model_dump() for p in presets]}
+
+
+@router.get("/presets/teams/{name}")
+async def get_team_preset(name: str, request: Request) -> dict[str, Any]:
+    """팀 프리셋 상세를 조회한다."""
+    engine = get_engine(request)
+    try:
+        preset = engine.load_team_preset(name)
+        return preset.model_dump()
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+
+@router.post("/presets/teams", status_code=201)
+async def create_team_preset(
+    body: CreateTeamPresetRequest,
+    request: Request,
+) -> dict[str, Any]:
+    """새로운 팀 프리셋을 생성한다."""
+    engine = get_engine(request)
+    preset = TeamPreset.model_validate(body.model_dump())
+    try:
+        engine.save_team_preset(preset, overwrite=False)
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
+    return preset.model_dump()
 
 
 # ============================================================
