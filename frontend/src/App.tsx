@@ -2,6 +2,7 @@ import { useState } from "react";
 import { AgentStatusPanel } from "./components/AgentStatusPanel";
 import { EventLog } from "./components/EventLog";
 import { KanbanBoard } from "./components/KanbanBoard";
+import { PipelineDetail } from "./components/PipelineDetail";
 import { PipelineList } from "./components/PipelineList";
 import { ResultViewer } from "./components/ResultViewer";
 import { TaskSubmitForm } from "./components/TaskSubmitForm";
@@ -57,6 +58,13 @@ export function App() {
         </div>
 
         {selectedPipeline && (
+          <PipelineDetail
+            pipeline={selectedPipeline}
+            onClose={() => setSelectedPipeline(null)}
+          />
+        )}
+
+        {selectedPipeline && selectedPipeline.synthesis && (
           <ResultViewer
             pipeline={selectedPipeline}
             onClose={() => setSelectedPipeline(null)}

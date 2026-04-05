@@ -176,6 +176,30 @@ class AgentWorker:
             finally:
                 self._current_task_id = None
 
+    async def _build_prompt(self, task: Any) -> str:
+        """선행 태스크 결과를 포함한 프롬프트 구성.
+
+        depends_on에 지정된 선행 태스크의 결과를 수집하여
+        현재 태스크의 프롬프트에 컨텍스트로 주입한다.
+
+        Args:
+            task: 실행할 TaskItem.
+
+        Returns:
+            컨텍스트가 포함된 프롬프트 문자열.
+        """
+        prompt: str = task.description
+        if task.depends_on:
+            context_parts = ["\n\n--- 이전 단계 결과 ---"]
+            for dep_id in task.depends_on:
+                dep_task = self.board.get_task(dep_id)
+                if dep_task and dep_task.result:
+                    context_parts.append(
+                        f"\n[{dep_task.lane}] {dep_task.result[:3000]}"
+                    )
+            prompt += "\n".join(context_parts)
+        return prompt
+
     async def _run_with_heartbeat(self, task: Any) -> Any:
         """Run executor.run() with concurrent heartbeat emission.
 
@@ -184,9 +208,10 @@ class AgentWorker:
         """
         from orchestrator.core.models.schemas import AgentResult
 
+        enriched_prompt = await self._build_prompt(task)
         exec_task = asyncio.create_task(
             self.executor.run(
-                task.description,
+                enriched_prompt,
                 timeout=300,
                 context=None,
             )

@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import time
 from collections.abc import Awaitable, Callable
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 import structlog
@@ -38,6 +40,8 @@ from orchestrator.core.worktree.collector import FileDiffCollector
 from orchestrator.core.worktree.manager import WorktreeManager
 
 logger = structlog.get_logger()
+
+_ORCHESTRATOR_DIR = str(Path(__file__).resolve().parent.parent.parent.parent)
 
 
 class OrchestratorEngine:
@@ -181,6 +185,14 @@ class OrchestratorEngine:
         if not task.strip():
             msg = "Task description cannot be empty"
             raise ValueError(msg)
+
+        # cwd 자기 보호: 오케스트레이터 디렉토리에서 CLI 실행 방지
+        if target_repo and os.path.realpath(target_repo) == os.path.realpath(
+            _ORCHESTRATOR_DIR
+        ):
+            raise ValueError(
+                f"CLI cannot run in orchestrator directory: {target_repo}"
+            )
 
         # target_repo가 git repo가 아니면 자동 초기화
         if target_repo:

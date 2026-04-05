@@ -165,6 +165,157 @@ async def cancel_task(
 
 
 # ============================================================
+# Subtask detail endpoints (V2)
+# ============================================================
+
+
+@router.get("/tasks/{task_id}/subtasks")
+async def list_subtasks(
+    task_id: str,
+    request: Request,
+) -> dict[str, Any]:
+    """파이프라인의 서브태스크 목록을 반환한다 (보드 상태 포함)."""
+    engine = get_engine(request)
+    pipeline = await engine.get_pipeline(task_id)
+    if pipeline is None:
+        raise HTTPException(status_code=404, detail=f"Task not found: {task_id}")
+
+    subtasks = []
+    for st in pipeline.subtasks:
+        board_task = engine.get_board_task(st.id)
+        started = (
+            board_task.started_at.isoformat()
+            if board_task and board_task.started_at
+            else None
+        )
+        completed = (
+            board_task.completed_at.isoformat()
+            if board_task and board_task.completed_at
+            else None
+        )
+        subtasks.append({
+            "id": st.id,
+            "description": st.description,
+            "assigned_preset": st.assigned_preset,
+            "assigned_cli": st.assigned_cli,
+            "priority": st.priority,
+            "depends_on": st.depends_on,
+            "state": board_task.state.value if board_task else st.status,
+            "result": board_task.result if board_task else "",
+            "error": board_task.error if board_task else "",
+            "started_at": started,
+            "completed_at": completed,
+        })
+
+    return {"task_id": task_id, "subtasks": subtasks}
+
+
+@router.get("/tasks/{task_id}/subtasks/{sub_id}")
+async def get_subtask(
+    task_id: str,
+    sub_id: str,
+    request: Request,
+) -> dict[str, Any]:
+    """개별 서브태스크 상세 (결과 포함)."""
+    engine = get_engine(request)
+    pipeline = await engine.get_pipeline(task_id)
+    if pipeline is None:
+        raise HTTPException(status_code=404, detail=f"Task not found: {task_id}")
+
+    subtask = next((st for st in pipeline.subtasks if st.id == sub_id), None)
+    if subtask is None:
+        raise HTTPException(status_code=404, detail=f"Subtask not found: {sub_id}")
+
+    board_task = engine.get_board_task(sub_id)
+    # Find matching WorkerResult
+    worker_result = next((r for r in pipeline.results if r.subtask_id == sub_id), None)
+
+    started = (
+        board_task.started_at.isoformat()
+        if board_task and board_task.started_at
+        else None
+    )
+    completed = (
+        board_task.completed_at.isoformat()
+        if board_task and board_task.completed_at
+        else None
+    )
+    files = (
+        [f.model_dump() for f in worker_result.files_changed]
+        if worker_result
+        else []
+    )
+    return {
+        "id": subtask.id,
+        "description": subtask.description,
+        "assigned_preset": subtask.assigned_preset,
+        "assigned_cli": subtask.assigned_cli,
+        "priority": subtask.priority,
+        "depends_on": subtask.depends_on,
+        "state": board_task.state.value if board_task else subtask.status,
+        "result": board_task.result if board_task else "",
+        "error": board_task.error if board_task else "",
+        "started_at": started,
+        "completed_at": completed,
+        "files_changed": files,
+        "tokens_used": worker_result.tokens_used if worker_result else 0,
+        "duration_ms": worker_result.duration_ms if worker_result else 0,
+    }
+
+
+@router.get("/tasks/{task_id}/files")
+async def list_task_files(
+    task_id: str,
+    request: Request,
+) -> dict[str, Any]:
+    """파이프라인의 worktree diff 파일 목록."""
+    engine = get_engine(request)
+    pipeline = await engine.get_pipeline(task_id)
+    if pipeline is None:
+        raise HTTPException(status_code=404, detail=f"Task not found: {task_id}")
+
+    files: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for wr in pipeline.results:
+        for fc in wr.files_changed:
+            if fc.path not in seen:
+                seen.add(fc.path)
+                files.append({
+                    "path": fc.path,
+                    "change_type": fc.change_type,
+                    "subtask_id": wr.subtask_id,
+                })
+
+    return {"task_id": task_id, "files": files}
+
+
+@router.get("/tasks/{task_id}/files/{path:path}")
+async def get_task_file(
+    task_id: str,
+    path: str,
+    request: Request,
+) -> dict[str, Any]:
+    """파이프라인의 특정 파일 내용."""
+
+    engine = get_engine(request)
+    pipeline = await engine.get_pipeline(task_id)
+    if pipeline is None:
+        raise HTTPException(status_code=404, detail=f"Task not found: {task_id}")
+
+    for wr in pipeline.results:
+        for fc in wr.files_changed:
+            if fc.path == path:
+                return {
+                    "path": fc.path,
+                    "change_type": fc.change_type,
+                    "content": fc.content,
+                    "subtask_id": wr.subtask_id,
+                }
+
+    raise HTTPException(status_code=404, detail=f"File not found: {path}")
+
+
+# ============================================================
 # Board endpoints
 # ============================================================
 
