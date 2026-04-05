@@ -297,3 +297,17 @@ C-CLI-01: Claude CLI 3초 타임아웃 설정 → retry 3회 → codex fallback
 | worktree commit → merge → my-project에 파일 | ✅ |
 
 **교차 검증:** v2-spec §4.5 prompt + §9 file instruction + §P1.5 commit/merge — 일관 ✅
+
+---
+
+## 시나리오 12: v2 iter6 — CLI stdout → 코드 추출 → 파일 저장
+
+| Step | 검증 |
+|------|------|
+| implementer CLI 실행 → stdout에 코드블록 출력 | ✅ |
+| **extract_files_from_output(stdout, cwd)** → 파일 파싱 | ✅ (신규) |
+| **cwd/src/add.py 파일 생성** | ✅ (신규) |
+| worktree commit → merge → target_repo에 반영 | ✅ |
+| my-project/src/add.py 존재 확인 | ✅ |
+
+**교차 검증:** v2-spec §10 extract → worker._run_with_heartbeat 흐름 ✅

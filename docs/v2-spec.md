@@ -353,3 +353,64 @@ architect의 설계 결과에 **파일 구조 목록**이 포함되도록 프리
 ```
 
 이러면 implementer가 architect 결과(컨텍스트 체이닝)에서 파일 목록을 보고 해당 파일을 생성할 수 있음.
+
+---
+
+## 10. P7: CLI stdout에서 코드 추출 → 파일 저장
+
+### 문제
+
+CLI(`claude -p`, `codex exec`)는 프롬프트 모드에서 **파일을 직접 생성하지 않는다.** 코드를 markdown 코드 블록으로 stdout에 출력할 뿐이다. "파일을 만들어라"고 지시해도 텍스트로 답변한다.
+
+### 해결: 결과 파싱 + 파일 추출
+
+오케스트레이터가 CLI stdout에서 **코드 블록을 파싱**하여 파일로 저장한다.
+
+```python
+# worker.py 또는 engine.py에서:
+import re
+
+def extract_files_from_output(output: str, target_dir: str) -> list[str]:
+    """CLI 출력에서 ```파일명 코드블록```을 찾아 파일로 저장."""
+    # 패턴: ```python:src/add.py 또는 ```# src/add.py 또는 파일명이 명시된 코드블록
+    pattern = r'```(?:\w+)?(?::|\s*#\s*)([\w/.\-]+)\n(.*?)```'
+    files_created = []
+    
+    for match in re.finditer(pattern, output, re.DOTALL):
+        filepath = match.group(1).strip()
+        content = match.group(2)
+        
+        full_path = os.path.join(target_dir, filepath)
+        os.makedirs(os.path.dirname(full_path), exist_ok=True)
+        with open(full_path, 'w') as f:
+            f.write(content)
+        files_created.append(filepath)
+    
+    return files_created
+```
+
+### 적용 위치
+
+**worker._run_with_heartbeat()** 에서 `executor.run()` 완료 후:
+
+```
+result = await executor.run(prompt, ...)
+# CLI stdout에서 코드 추출 → 파일 저장
+if cwd:
+    files = extract_files_from_output(result.output, cwd)
+    if files:
+        logger.info("files_extracted", count=len(files), files=files)
+```
+
+### 프롬프트 지시 변경
+
+파일을 직접 만들라는 대신, **코드를 파일명과 함께 코드블록으로 출력하라**고 지시:
+
+```
+코드를 작성할 때 반드시 다음 형식으로 출력하세요:
+```python:src/add.py
+def add(a, b):
+    return a + b
+`` `
+파일 경로를 코드블록 언어 뒤에 콜론(:)으로 표시하세요.
+```
