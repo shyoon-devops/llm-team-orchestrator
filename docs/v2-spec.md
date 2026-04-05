@@ -200,6 +200,44 @@ PipelineDetail (새 페이지/모달)
 
 ---
 
+## 4.5 P4: CLI가 실제 파일을 생성하도록 프롬프트 지시
+
+### 문제 상세
+
+CLI(claude/codex/gemini)는 프롬프트에 "파일을 생성하라"는 명시적 지시가 없으면 **stdout으로 코드를 출력**할 뿐 **파일을 직접 생성하지 않는다.** 이로 인해 worktree에 변경사항이 없고, commit/merge할 것도 없어서 my-project에 파일이 남지 않음.
+
+### 해결 설계
+
+1. **프리셋 description에 파일 생성 지시를 포함:**
+   - implementer: "반드시 파일을 직접 생성/수정하라. stdout으로 코드를 출력하지 말고 실제 파일을 만들어라."
+   - tester: "반드시 tests/ 디렉토리에 테스트 파일을 생성하라."
+
+2. **worker._build_prompt()에서 cwd 안내를 프롬프트에 추가:**
+   ```
+   f"\n\n작업 디렉토리: {cwd}\n"
+   f"이 디렉토리에서 직접 파일을 생성/수정하세요. stdout으로 코드를 출력하지 마세요."
+   ```
+
+3. **프리셋 YAML 수정:**
+   ```yaml
+   # presets/agents/implementer.yaml
+   persona:
+     constraints:
+       - "반드시 파일을 직접 생성하고 수정한다 — stdout으로 코드를 출력하지 않는다"
+       - "작업 디렉토리에 실제 파일을 만든다"
+   ```
+
+### 적용 범위
+
+| 프리셋 | 파일 생성 필요 | 수정 |
+|--------|--------------|------|
+| architect | ❌ (설계 문서는 stdout OK) | 수정 없음 |
+| implementer | ✅ (코드 파일 생성) | constraints에 파일 생성 지시 추가 |
+| tester | ✅ (테스트 파일 생성) | constraints에 파일 생성 지시 추가 |
+| reviewer | ❌ (리뷰는 stdout OK) | 수정 없음 |
+
+---
+
 ## 5. 추가 개선
 
 ### 5.1 오케스트레이터의 역할별 세부 지시

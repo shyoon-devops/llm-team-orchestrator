@@ -240,3 +240,29 @@ C-CLI-01: Claude CLI 3초 타임아웃 설정 → retry 3회 → codex fallback
 **교차 검증:**
 - v2-spec.md §P1.5 commit/merge ↔ functions.md §7 WorktreeManager | ✅
 - v2-spec.md §P1.5 로그 ↔ worker._build_prompt | ✅
+
+---
+
+## 시나리오 9: v2 iter3 — CLI에게 파일 생성 지시
+
+```
+사용자: "add 함수 작성" / feature-team / /home/yoon/repository/my-project
+```
+
+| Step | 동작 | 참조 문서 | 검증 |
+|------|------|----------|------|
+| 1-6 | 시나리오 8과 동일 (파이프라인 생성 → worktree → architect 실행) | | ✅ |
+| 7 | architect stdout 결과 → board.complete | | ✅ |
+| 8 | implementer 승격 → _build_prompt(architect 결과 포함) | v2-spec.md §3 | ✅ |
+| 9 | **_build_prompt에 "작업 디렉토리: {cwd}" + "파일 직접 생성" 지시 추가** | v2-spec.md §4.5 | ✅ (신규) |
+| 10 | **implementer 프리셋 constraints에 "파일 직접 생성" 포함** | v2-spec.md §4.5 | ✅ (신규) |
+| 11 | implementer CLI 실행 (cwd=worktree) → **실제 파일 생성** | v2-spec.md §4.5 | ✅ |
+| 12 | implementer 완료 → worktree에 변경사항 있음 | v2-spec.md §P1.5 | ✅ |
+| 13 | **_commit_worktree_changes → git commit** | v2-spec.md §P1.5 | ✅ |
+| 14 | tester도 파일 생성 지시 → 테스트 파일 생성 | v2-spec.md §4.5 | ✅ |
+| 15 | 모든 완료 → **merge_to_target → target_repo에 파일 반영** | v2-spec.md §P1.5 | ✅ |
+| 16 | my-project/ 에 코드 파일 + 테스트 파일 존재 | v2-spec.md §6 | ✅ |
+
+**교차 검증:**
+- v2-spec.md §4.5 프롬프트 지시 ↔ presets/agents/implementer.yaml constraints | ✅
+- worker._build_prompt cwd 안내 ↔ executor context cwd | ✅
