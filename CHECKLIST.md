@@ -333,3 +333,57 @@
 - [x] pytest tests/unit/ tests/api/ -v -- 213 passed (197 Phase 1-4 + 16 Phase 5)
 - [ ] npm test -- (requires npm install; sandbox restriction)
 - [ ] npm run build -- (requires npm install; sandbox restriction)
+
+---
+
+# Phase 6 Implementation Checklist (Branch A -- E2E Scenarios + Performance Logging)
+
+## T6.1 E2E: Coding Scenario
+- [x] tests/e2e/test_coding_scenario.py -- 4 tests
+  - test_coding_team_jwt_middleware_full_pipeline: 4 에이전트 → 설계/구현/리뷰/테스트 → COMPLETED
+  - test_coding_team_subtask_dependency_order: 의존성 순서 검증 (design → implement → review+test)
+  - test_coding_team_event_flow: CREATED → PLANNING → RUNNING → SYNTHESIZING → COMPLETED 이벤트 순서
+  - test_coding_team_synthesis_contains_subtask_info: 종합 보고서에 서브태스크 결과 반영
+
+## T6.2 E2E: Incident Analysis Scenario
+- [x] tests/e2e/test_incident_scenario.py -- 3 tests
+  - test_incident_analysis_parallel_completion: 3개 MCP 에이전트 병렬 실행 → 완료
+  - test_incident_analysis_synthesis_contains_all_analyses: 종합 보고서에 3개 분석 반영
+  - test_incident_analysis_events_and_timing: 병렬 실행 이벤트 흐름 확인
+
+## T6.3 E2E: Failure + Fallback Scenario
+- [x] tests/e2e/test_failure_scenario.py -- 4 tests
+  - test_all_subtasks_fail_pipeline_fails: 전체 실패 → FAILED
+  - test_partial_failure_some_succeed_some_fail: 1/3 실패 → PARTIAL_FAILURE
+  - test_majority_failure_pipeline_fails: 2/3 실패 → FAILED
+  - test_failure_with_retry_exhaustion: 재시도 소진 → TASK_RETRYING + TASK_FAILED 이벤트
+
+## T6.4 E2E: Resume Scenario
+- [x] tests/e2e/test_resume_scenario.py -- 3 tests
+  - test_cancel_and_resume_pipeline: cancel → resume → 완료된 태스크 보존
+  - test_resume_preserves_checkpoint: resume 후 체크포인트 업데이트 확인
+  - test_resume_from_checkpoint_after_restart: 서버 재시작 후 체크포인트 복원 + resume
+
+## T6.5 Performance Logging
+- [x] engine._execute_pipeline에 structlog 타이밍 추가
+  - perf_decomposition: 태스크 분해 시간 (decomposition_ms)
+  - perf_execution: 전체 실행 시간 (execution_ms)
+  - perf_subtask: 서브태스크별 소요 시간 (subtask_ms, lane, state)
+  - perf_synthesis: 종합 보고서 생성 시간 (synthesis_ms, report_length)
+  - perf_pipeline_total: 파이프라인 전체 시간 (total_pipeline_ms + 모든 하위 시간)
+  - PIPELINE_COMPLETED 이벤트에 total_duration_ms 포함
+
+## T6.6 E2E Test Infrastructure
+- [x] tests/e2e/__init__.py
+- [x] tests/e2e/conftest.py -- E2E 전용 fixture + mock executor 클래스
+  - MockAgentExecutor: 기본 mock executor
+  - RealisticCodeExecutor: 역할별 사실적 코드 출력
+  - FailingMockExecutor: 항상 실패하는 executor
+  - PartialFailExecutor: 키워드 기반 부분 실패 executor
+  - wait_for_pipeline: 파이프라인 터미널 상태 대기 헬퍼
+
+## T6.7 Final verification
+- [x] ruff check src/ tests/ -- All checks passed
+- [x] ruff format --check src/ tests/ -- 100 files already formatted
+- [x] mypy src/ -- Success: no issues found in 52 source files
+- [x] pytest tests/unit/ tests/api/ tests/e2e/ -v -- 227 passed (213 Phase 1-5 + 14 Phase 6)

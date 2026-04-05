@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from collections.abc import Awaitable, Callable
 from datetime import datetime
 from typing import Any
@@ -431,9 +432,11 @@ class OrchestratorEngine:
         task_id = pipeline.task_id
         pipeline_workers: list[str] = []
         worktree_branches: list[str] = []
+        pipeline_start = time.monotonic()
 
         try:
             # ── Phase 1: PENDING → PLANNING ──────────────────────────────
+            decomposition_start = time.monotonic()
             self._pipelines[task_id] = pipeline.model_copy(
                 update={
                     "status": PipelineStatus.PLANNING,
@@ -459,6 +462,13 @@ class OrchestratorEngine:
                 pipeline.task,
                 team_preset=team_preset_obj,
                 target_repo=pipeline.target_repo or None,
+            )
+            decomposition_ms = int((time.monotonic() - decomposition_start) * 1000)
+            logger.info(
+                "perf_decomposition",
+                task_id=task_id,
+                decomposition_ms=decomposition_ms,
+                subtask_count=len(subtasks),
             )
 
             # Pipeline에 서브태스크 기록
@@ -558,12 +568,40 @@ class OrchestratorEngine:
                 await worker.start()
 
             # ── Phase 3: RUNNING — 모든 태스크 완료 대기 ─────────────────
+            execution_start = time.monotonic()
             while not self._board.is_all_done(task_id):
                 # 취소 확인
                 current = self._pipelines.get(task_id)
                 if current and current.status == PipelineStatus.CANCELLED:
                     return
                 await asyncio.sleep(0.1)
+            execution_ms = int((time.monotonic() - execution_start) * 1000)
+            logger.info(
+                "perf_execution",
+                task_id=task_id,
+                execution_ms=execution_ms,
+            )
+
+            # Per-subtask duration logging
+            for st in subtasks:
+                finished_item = self._board.get_task(st.id)
+                if (
+                    finished_item is not None
+                    and finished_item.started_at is not None
+                    and finished_item.completed_at is not None
+                ):
+                    subtask_ms = int(
+                        (finished_item.completed_at - finished_item.started_at).total_seconds()
+                        * 1000
+                    )
+                    logger.info(
+                        "perf_subtask",
+                        task_id=task_id,
+                        subtask_id=st.id,
+                        subtask_ms=subtask_ms,
+                        lane=finished_item.lane,
+                        state=finished_item.state.value,
+                    )
 
             # ── Phase 4: RUNNING → SYNTHESIZING ──────────────────────────
             self._pipelines[task_id] = self._pipelines[task_id].model_copy(
@@ -678,10 +716,18 @@ class OrchestratorEngine:
 
             # <50% 실패 또는 0% 실패 → 종합 진행
             # Synthesizer로 종합 보고서 생성 (실패 정보 포함)
+            synthesis_start = time.monotonic()
             synthesis = await self._synthesizer.synthesize(
                 worker_results,
                 strategy=used_preset.synthesis_strategy,
                 task_description=pipeline.task,
+            )
+            synthesis_ms = int((time.monotonic() - synthesis_start) * 1000)
+            logger.info(
+                "perf_synthesis",
+                task_id=task_id,
+                synthesis_ms=synthesis_ms,
+                report_length=len(synthesis),
             )
 
             # Worktree merge (target_repo가 있고 auto_merge인 경우)
@@ -723,6 +769,18 @@ class OrchestratorEngine:
                 }
             )
             self._save_checkpoint(self._pipelines[task_id])
+            total_pipeline_ms = int((time.monotonic() - pipeline_start) * 1000)
+            logger.info(
+                "perf_pipeline_total",
+                task_id=task_id,
+                total_pipeline_ms=total_pipeline_ms,
+                decomposition_ms=decomposition_ms,
+                execution_ms=execution_ms,
+                synthesis_ms=synthesis_ms,
+                subtask_count=len(subtasks),
+                success_count=success_count,
+                fail_count=fail_count,
+            )
             event_type = EventType.PIPELINE_COMPLETED
             await self._event_bus.emit(
                 OrchestratorEvent(
@@ -731,7 +789,7 @@ class OrchestratorEngine:
                     node="orchestrator",
                     data={
                         "synthesis_length": len(synthesis),
-                        "total_duration_ms": 0,
+                        "total_duration_ms": total_pipeline_ms,
                         "status": final_status,
                         "fail_count": fail_count,
                         "success_count": success_count,
