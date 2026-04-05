@@ -2319,7 +2319,57 @@ def run(
 - wait 폴링 루프가 이벤트 루프를 유지하여 background task가 실행될 수 있도록 함
 - shutdown()이 호출되지 않으면 subprocess 좀비 프로세스 발생
 
-### 12.2 `serve`
+### 12.2 `status`
+
+```python
+def status(
+    task_id: str | None = None,                         # 선택: 특정 파이프라인 ID
+) -> None:
+```
+
+**목적:** 파이프라인 상태를 조회한다.
+- `task_id` 없으면: 전체 파이프라인 목록 (테이블)
+- `task_id` 있으면: 해당 파이프라인 상세 (task, status, subtasks, error)
+
+### 12.3 `cancel`
+
+```python
+def cancel(
+    task_id: str,                                       # 필수: 취소할 파이프라인 ID
+) -> None:
+```
+
+**목적:** 실행 중인 파이프라인을 취소한다. `engine.cancel_task()` 호출.
+
+### 12.4 `resume`
+
+```python
+def resume(
+    task_id: str,                                       # 필수: 재개할 파이프라인 ID
+) -> None:
+```
+
+**목적:** 중단된 파이프라인을 재개한다. `engine.start()` → `engine.resume_task()` → `engine.shutdown()`.
+
+### 12.5 `presets list`
+
+```python
+def presets_list() -> None:
+```
+
+**목적:** 모든 에이전트/팀 프리셋 목록을 출력한다. `engine.list_agent_presets()` + `engine.list_team_presets()`.
+
+### 12.6 `presets show`
+
+```python
+def presets_show(
+    name: str,                                          # 필수: 프리셋 이름
+) -> None:
+```
+
+**목적:** 프리셋 상세를 출력한다. 에이전트 프리셋 먼저 검색, 없으면 팀 프리셋 검색.
+
+### 12.7 `serve`
 
 ```python
 def serve(
