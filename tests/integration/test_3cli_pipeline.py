@@ -1,6 +1,6 @@
 """★ PoC 전용 — Real 3-CLI mixed pipeline integration test.
 
-Runs plan(Claude) → implement(Codex) → review(Gemini) against test-target-repo.
+Runs plan(Claude) → implement(Codex) → review(Gemini) in an isolated temp directory.
 Requires all 3 CLIs installed and authenticated.
 
 Run with: uv run pytest tests/integration/test_3cli_pipeline.py -v -m integration
@@ -32,6 +32,9 @@ class TestReal3CLIPipeline:
         artifact_store = ArtifactStore(tempfile.mkdtemp(prefix="3cli-test-"))
         event_bus = EventBus()
 
+        # Use a temp dir as cwd so CLIs don't pollute the project directory
+        sandbox = tempfile.mkdtemp(prefix="3cli-sandbox-")
+
         graph = build_graph(
             planner,
             implementer,
@@ -39,11 +42,15 @@ class TestReal3CLIPipeline:
             artifact_store,
             event_bus,
             task_id="3cli-e2e",
+            cwd=sandbox,
         )
 
         result = await graph.ainvoke(
             {
-                "task": "Write a Python function that adds two numbers and returns the result",
+                "task": (
+                    "Respond with a short text description of how to add two numbers "
+                    "in Python. Do NOT create or modify any files."
+                ),
                 "plan_summary": "",
                 "plan_artifact": "",
                 "code_artifact": "",
@@ -57,7 +64,9 @@ class TestReal3CLIPipeline:
         )
 
         # Verify pipeline completed
-        assert result["status"] == "reviewed", f"Pipeline ended with: {result['status']}, error: {result.get('error', '')}"
+        assert result["status"] == "reviewed", (
+            f"Pipeline ended with: {result['status']}, error: {result.get('error', '')}"
+        )
         assert len(result["messages"]) == 3
 
         # Verify artifacts

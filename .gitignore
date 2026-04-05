@@ -46,7 +46,11 @@ frontend/dist/
 test-target-repo/
 
 # CLI runtime artifacts (codex/gemini leave these behind)
+.codex
 .codex/
 resume/
 .gemini/
 .worktrees/
+
+# Lock file changes from CLI runs
+uv.lock

@@ -6,12 +6,17 @@ Run with: uv run pytest tests/integration/ -v -m integration
 
 from __future__ import annotations
 
+import tempfile
+
 import pytest
 
 from orchestrator.adapters.claude import ClaudeAdapter
 from orchestrator.adapters.codex import CodexAdapter
 from orchestrator.adapters.gemini import GeminiAdapter
 from orchestrator.models.schemas import AdapterConfig
+
+# All adapter tests run in a temp sandbox to avoid polluting the project
+_SANDBOX = tempfile.mkdtemp(prefix="adapter-test-")
 
 
 # ---------------------------------------------------------------------------
@@ -33,6 +38,7 @@ class TestClaudeAdapterReal:
         result = await adapter.run(
             "Respond with exactly one word: hello",
             timeout=60,
+            cwd=_SANDBOX,
         )
 
         assert result.exit_code == 0
@@ -68,6 +74,7 @@ class TestCodexAdapterReal:
         result = await adapter.run(
             "Respond with exactly one word: hello_codex",
             timeout=120,
+            cwd=_SANDBOX,
         )
 
         assert result.exit_code == 0
@@ -101,6 +108,7 @@ class TestGeminiAdapterReal:
         result = await adapter.run(
             "Respond with exactly one word: hello_gemini",
             timeout=120,
+            cwd=_SANDBOX,
         )
 
         assert result.exit_code == 0
