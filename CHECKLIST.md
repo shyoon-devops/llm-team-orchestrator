@@ -167,3 +167,78 @@
 - [x] ruff format -- All files formatted
 - [x] mypy src/ -- Success: no issues found in 49 source files
 - [x] pytest tests/unit/ tests/api/ -v -- 170 passed (78 Phase 1 + 81 Phase 2 + 11 Phase 3)
+
+---
+
+# Phase 4 Implementation Checklist (Branch B — Error Handling + Synthesizer)
+
+## T4.1 FallbackChain
+- [x] core/errors/fallback.py — FallbackChain class
+  - cli_priority 순서대로 시도, 첫 성공 결과 반환
+  - CLIError/CLITimeoutError → 다음 CLI로 폴백
+  - AuthError → skip (재시도 없음)
+  - AllProvidersFailedError when all exhausted
+  - FALLBACK_TRIGGERED / FALLBACK_SUCCEEDED / FALLBACK_EXHAUSTED 이벤트 발행
+- [x] core/errors/exceptions.py — AllProvidersFailedError.__init__ 추가 (task_id, attempted 파라미터)
+
+## T4.2 RetryPolicy
+- [x] core/errors/retry.py — RetryPolicy class with tenacity
+  - 지수 백오프: 1s, 2s, 4s (configurable)
+  - 재시도 대상: CLITimeoutError, CLIExecutionError (exit 137/139 제외)
+  - 재시도 불가: AuthError, CLINotFoundError, CLIParseError
+  - max_attempts 초과 시 마지막 예외 reraise
+  - before_sleep 로깅 콜백
+
+## T4.3 Partial Failure Handling
+- [x] core/engine.py — _execute_pipeline 부분 실패 처리 업그레이드
+  - 0% 실패 → COMPLETED (정상 종합)
+  - 1~49% 실패 → PARTIAL_FAILURE (성공 결과로 종합, 실패 태스크 표시)
+  - 50~100% 실패 → FAILED (파이프라인 실패, 결과 보존)
+  - 이벤트에 fail_count, success_count, fail_ratio 포함
+
+## T4.4 Synthesizer Production
+- [x] core/events/synthesizer.py — Template-based 종합기로 업그레이드
+  - Strategy 패턴: narrative / structured / checklist
+  - narrative: 자연어 보고서 (배경→에이전트별 결과→결론)
+  - structured: 구조화 보고서 (상태 요약 표 + 서브태스크 상세 표 + 결과 본문)
+  - checklist: 체크리스트 ([x] / [ ] 형태, 진행률 표시)
+  - 실패 태스크 정보 포함 (실패 노트 섹션)
+  - 성공/실패 분류 후 적절한 요약 메시지 생성
+
+## T4.5 Error Scenario Tests
+- [x] tests/unit/test_fallback.py — 8 tests
+  - test_fallback_first_cli_succeeds
+  - test_fallback_tries_next_on_timeout
+  - test_fallback_skips_auth_error
+  - test_fallback_all_failed_raises
+  - test_fallback_emits_event
+  - test_fallback_exhausted_emits_event
+  - test_fallback_single_cli_success
+  - test_fallback_mixed_errors
+- [x] tests/unit/test_retry.py — 9 tests
+  - test_retry_on_timeout
+  - test_retry_on_execution_error
+  - test_no_retry_on_auth_error
+  - test_no_retry_on_cli_not_found
+  - test_no_retry_on_parse_error
+  - test_max_retries_then_fail
+  - test_retry_succeeds_on_first_try
+  - test_retry_policy_custom_config
+  - test_retry_context_passed
+- [x] tests/unit/test_partial_failure.py — 10 tests
+  - test_all_success_pipeline
+  - test_partial_success_pipeline
+  - test_majority_fail_pipeline
+  - test_all_fail_pipeline
+  - test_partial_failure_events
+  - test_synthesizer_includes_failures
+  - test_synthesizer_narrative_all_success
+  - test_synthesizer_structured_strategy
+  - test_synthesizer_checklist_strategy
+  - test_synthesizer_empty_results
+
+## T4.6 Final verification
+- [x] ruff check src/ tests/ -- All checks passed
+- [x] ruff format --check src/ tests/ -- 90 files already formatted
+- [x] mypy src/ -- Success: no issues found in 51 source files
+- [x] pytest tests/unit/ tests/api/ -v -- 197 passed (170 Phase 1-3 + 27 Phase 4)

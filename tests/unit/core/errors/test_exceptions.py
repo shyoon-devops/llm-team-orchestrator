@@ -64,6 +64,13 @@ def test_decomposition_error():
 
 
 def test_all_providers_failed():
-    err = AllProvidersFailedError("all failed")
+    attempted = [
+        {"cli": "claude", "error_code": "CLI_TIMEOUT", "message": "timed out"},
+        {"cli": "codex", "error_code": "CLI_EXECUTION_ERROR", "message": "exit 1"},
+    ]
+    err = AllProvidersFailedError(task_id="task-001", attempted=attempted)
     assert err.http_status == 502
     assert not err.retryable
+    assert err.task_id == "task-001"
+    assert len(err.attempted) == 2
+    assert "claude" in str(err)

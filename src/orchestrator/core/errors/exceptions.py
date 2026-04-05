@@ -421,4 +421,18 @@ class AllProvidersFailedError(OrchestratorError):
     error_code: str = "ALL_PROVIDERS_FAILED"
     http_status: int = 502
     retryable: bool = False
-    user_message: str = "모든 CLI 에이전트가 실패했습니다."
+    user_message: str = "모든 CLI 프로바이더가 실패했습니다."
+
+    def __init__(
+        self,
+        *,
+        task_id: str,
+        attempted: list[dict[str, str]],
+    ) -> None:
+        providers = [a["cli"] for a in attempted]
+        super().__init__(
+            f"All providers failed for task {task_id}: {providers}",
+            details={"attempted": attempted},
+        )
+        self.task_id = task_id
+        self.attempted = attempted

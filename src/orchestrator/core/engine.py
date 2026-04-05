@@ -12,6 +12,7 @@ import structlog
 from orchestrator.core.adapters.factory import AdapterFactory
 from orchestrator.core.auth.provider import EnvAuthProvider
 from orchestrator.core.config.schema import OrchestratorConfig
+from orchestrator.core.errors.fallback import FallbackChain
 from orchestrator.core.events.bus import EventBus
 from orchestrator.core.events.synthesizer import Synthesizer
 from orchestrator.core.events.types import EventType, OrchestratorEvent
@@ -64,6 +65,7 @@ class OrchestratorEngine:
         self._auth_provider = EnvAuthProvider()
         self._adapter_factory = AdapterFactory(self._auth_provider)
         self._worktree_manager = WorktreeManager(self.config.worktree_base_dir)
+        self._fallback_chain = FallbackChain(event_bus=self._event_bus)
         self._synthesizer = Synthesizer(model=self.config.synthesizer_model)
         self._team_planner = TeamPlanner(
             model=self.config.planner_model,
@@ -560,16 +562,18 @@ class OrchestratorEngine:
                 worker_results.append(wr)
 
             # 부분 실패 확인
-            has_failures = len(failed_tasks) > 0
-            has_successes = len(done_tasks) > 0
+            total_count = len(all_pipeline_tasks)
+            fail_count = len(failed_tasks)
+            success_count = len(done_tasks)
+            fail_ratio = fail_count / total_count if total_count > 0 else 0.0
 
-            if has_failures and not has_successes:
-                # 모든 태스크 실패
+            if fail_count > 0 and success_count == 0:
+                # 100% 실패 → FAILED
                 self._pipelines[task_id] = self._pipelines[task_id].model_copy(
                     update={
                         "status": PipelineStatus.FAILED,
                         "results": worker_results,
-                        "error": "All subtasks failed",
+                        "error": f"All {fail_count} subtasks failed",
                         "completed_at": datetime.utcnow(),
                     }
                 )
@@ -578,12 +582,42 @@ class OrchestratorEngine:
                         type=EventType.PIPELINE_FAILED,
                         task_id=task_id,
                         node="orchestrator",
-                        data={"error_message": "All subtasks failed"},
+                        data={
+                            "error_message": f"All {fail_count} subtasks failed",
+                            "fail_count": fail_count,
+                            "total_count": total_count,
+                        },
                     )
                 )
                 return
 
-            # Synthesizer로 종합 보고서 생성
+            if fail_ratio >= 0.5:
+                # 50% 이상 실패 → FAILED (결과는 보존)
+                self._pipelines[task_id] = self._pipelines[task_id].model_copy(
+                    update={
+                        "status": PipelineStatus.FAILED,
+                        "results": worker_results,
+                        "error": f"{fail_count}/{total_count} subtasks failed (>= 50%)",
+                        "completed_at": datetime.utcnow(),
+                    }
+                )
+                await self._event_bus.emit(
+                    OrchestratorEvent(
+                        type=EventType.PIPELINE_FAILED,
+                        task_id=task_id,
+                        node="orchestrator",
+                        data={
+                            "error_message": f"{fail_count}/{total_count} subtasks failed",
+                            "fail_count": fail_count,
+                            "total_count": total_count,
+                            "fail_ratio": fail_ratio,
+                        },
+                    )
+                )
+                return
+
+            # <50% 실패 또는 0% 실패 → 종합 진행
+            # Synthesizer로 종합 보고서 생성 (실패 정보 포함)
             synthesis = await self._synthesizer.synthesize(
                 worker_results,
                 strategy=used_preset.synthesis_strategy,
@@ -615,9 +649,9 @@ class OrchestratorEngine:
                             error=str(merge_err),
                         )
 
-            # ── Phase 5: SYNTHESIZING → COMPLETED ────────────────────────
+            # ── Phase 5: SYNTHESIZING → COMPLETED / PARTIAL_FAILURE ─────
             final_status = (
-                PipelineStatus.PARTIAL_FAILURE if has_failures else PipelineStatus.COMPLETED
+                PipelineStatus.PARTIAL_FAILURE if fail_count > 0 else PipelineStatus.COMPLETED
             )
             self._pipelines[task_id] = self._pipelines[task_id].model_copy(
                 update={
@@ -628,15 +662,18 @@ class OrchestratorEngine:
                     "completed_at": datetime.utcnow(),
                 }
             )
+            event_type = EventType.PIPELINE_COMPLETED
             await self._event_bus.emit(
                 OrchestratorEvent(
-                    type=EventType.PIPELINE_COMPLETED,
+                    type=event_type,
                     task_id=task_id,
                     node="orchestrator",
                     data={
                         "synthesis_length": len(synthesis),
                         "total_duration_ms": 0,
                         "status": final_status,
+                        "fail_count": fail_count,
+                        "success_count": success_count,
                     },
                 )
             )
