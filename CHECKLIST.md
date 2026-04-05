@@ -117,3 +117,53 @@
 - [x] ruff format --check src/ tests/ -- All files formatted
 - [x] mypy src/ -- Success: no issues found in 49 source files
 - [x] pytest tests/unit/ tests/api/ -v -- 159 passed (78 Phase 1 + 81 Phase 2)
+
+---
+
+# Phase 3 Implementation Checklist (Branch B — Hybrid Orchestration)
+
+## T3.1 Engine Integration — submit_task uses Hybrid flow
+- [x] _execute_pipeline() fully implements Hybrid orchestration:
+  - PENDING → PLANNING: TeamPlanner.plan_team() decomposes task into subtasks
+  - PLANNING → RUNNING: SubTasks → TaskItems on TaskBoard, AgentWorker per lane started
+  - RUNNING: Workers consume tasks from board via polling loop
+  - RUNNING → SYNTHESIZING: All tasks done → Synthesizer.synthesize() generates report
+  - SYNTHESIZING → COMPLETED/PARTIAL_FAILURE: Pipeline finalized with results + synthesis
+- [x] _create_executor_for_preset(): creates CLIAgentExecutor from AgentPreset (persona, CLI adapter, config)
+- [x] _stop_pipeline_workers(): cleanup helper for stopping pipeline-scoped workers
+- [x] Background task tracking via _bg_tasks dict (per pipeline)
+- [x] Cancellation support: _execute_pipeline checks for CANCELLED status during execution loop
+- [x] Error handling: all subtask failures → FAILED, partial failures → PARTIAL_FAILURE
+
+## T3.2 LangGraph Planning Graph (stub — uses TeamPlanner directly)
+- [x] TeamPlanner from Phase 2 handles decomposition (no separate LangGraph graph needed for MVP)
+- [x] _plan_from_preset: TeamTaskDef → SubTask with depends_on DAG
+- [x] _plan_auto: single implementer fallback when no preset given
+
+## T3.3 Worktree + FileDiff Integration
+- [x] WorktreeManager.create() called per lane when target_repo is set
+- [x] cwd passed to executor via _create_executor_for_preset()
+- [x] FileDiffCollector.collect_changes() after workers complete
+- [x] WorktreeManager.merge_to_target() added — merges worktree branch to target
+- [x] WorktreeManager.cleanup() in finally block
+- [x] WORKTREE_CREATED / WORKTREE_MERGED events emitted
+
+## T3.4 Full Pipeline E2E Tests
+- [x] tests/unit/test_hybrid_pipeline.py — 11 tests:
+  - test_submit_task_creates_pipeline
+  - test_pipeline_decomposes_and_distributes
+  - test_pipeline_respects_dependencies
+  - test_pipeline_synthesizes_results
+  - test_pipeline_with_target_repo (worktree mock)
+  - test_pipeline_handles_all_subtasks_failed
+  - test_cancel_during_execution
+  - test_submit_empty_task_raises
+  - test_submit_task_invalid_preset_raises
+  - test_pipeline_auto_team_creates_single_subtask
+  - test_board_state_after_pipeline
+
+## T3.5 Final verification
+- [x] ruff check src/ tests/ -- All checks passed
+- [x] ruff format -- All files formatted
+- [x] mypy src/ -- Success: no issues found in 49 source files
+- [x] pytest tests/unit/ tests/api/ -v -- 170 passed (78 Phase 1 + 81 Phase 2 + 11 Phase 3)

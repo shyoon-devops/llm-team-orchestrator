@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable
+from datetime import datetime
 from typing import Any
 
 import structlog
@@ -14,12 +15,23 @@ from orchestrator.core.config.schema import OrchestratorConfig
 from orchestrator.core.events.bus import EventBus
 from orchestrator.core.events.synthesizer import Synthesizer
 from orchestrator.core.events.types import EventType, OrchestratorEvent
-from orchestrator.core.models.pipeline import Pipeline, PipelineStatus
+from orchestrator.core.executor.base import AgentExecutor
+from orchestrator.core.executor.cli_executor import CLIAgentExecutor
+from orchestrator.core.models.pipeline import (
+    FileChange,
+    Pipeline,
+    PipelineStatus,
+    WorkerResult,
+)
+from orchestrator.core.models.schemas import AdapterConfig
+from orchestrator.core.planner.team_planner import TeamPlanner
 from orchestrator.core.presets.models import AgentPreset, TeamPreset
 from orchestrator.core.presets.registry import PresetRegistry
 from orchestrator.core.queue.board import TaskBoard
+from orchestrator.core.queue.models import TaskItem
 from orchestrator.core.queue.worker import AgentWorker
 from orchestrator.core.utils import generate_id
+from orchestrator.core.worktree.collector import FileDiffCollector
 from orchestrator.core.worktree.manager import WorktreeManager
 
 logger = structlog.get_logger()
@@ -31,6 +43,10 @@ class OrchestratorEngine:
     API 계층은 이 클래스만 의존한다.
     모든 하위 컴포넌트(TaskBoard, PresetRegistry, EventBus 등)를 조합하고,
     태스크 생명주기를 관리한다.
+
+    Hybrid 오케스트레이션 모델:
+    - Planning (LangGraph/TeamPlanner): LLM 기반 태스크 분해
+    - Execution (TaskBoard + AgentWorker): 기계적 분배, DAG 의존성 해소, retry
     """
 
     def __init__(
@@ -49,8 +65,13 @@ class OrchestratorEngine:
         self._adapter_factory = AdapterFactory(self._auth_provider)
         self._worktree_manager = WorktreeManager(self.config.worktree_base_dir)
         self._synthesizer = Synthesizer(model=self.config.synthesizer_model)
+        self._team_planner = TeamPlanner(
+            model=self.config.planner_model,
+            preset_registry=self._preset_registry,
+        )
         self._pipelines: dict[str, Pipeline] = {}
         self._workers: dict[str, AgentWorker] = {}
+        self._bg_tasks: dict[str, asyncio.Task[None]] = {}
 
     @property
     def event_bus(self) -> EventBus:
@@ -106,7 +127,8 @@ class OrchestratorEngine:
         )
 
         # Start pipeline execution in background
-        self._bg_task = asyncio.create_task(self._execute_pipeline(pipeline))
+        bg = asyncio.create_task(self._execute_pipeline(pipeline))
+        self._bg_tasks[task_id] = bg
 
         logger.info("pipeline_created", task_id=task_id, task=task)
         return pipeline
@@ -294,43 +316,337 @@ class OrchestratorEngine:
         """
         return self._event_bus.get_history(task_id=task_id)
 
+    def _create_executor_for_preset(
+        self,
+        preset_name: str,
+        *,
+        cwd: str | None = None,
+    ) -> AgentExecutor:
+        """에이전트 프리셋에 맞는 AgentExecutor를 생성한다.
+
+        Args:
+            preset_name: AgentPreset 이름.
+            cwd: CLI 실행 디렉토리 (worktree 경로).
+
+        Returns:
+            AgentExecutor 인스턴스.
+        """
+        try:
+            preset = self._preset_registry.load_agent_preset(preset_name)
+        except KeyError:
+            # 프리셋이 없으면 기본 설정 사용
+            logger.warning("preset_not_found_using_default", preset_name=preset_name)
+            preset = None
+
+        if preset is not None and preset.execution_mode == "cli":
+            cli_name = preset.preferred_cli or "claude"
+            adapter = self._adapter_factory.create(cli_name)
+            config = AdapterConfig(
+                timeout=preset.limits.timeout,
+                working_dir=cwd,
+            )
+            persona = preset.persona.to_system_prompt()
+            executor = CLIAgentExecutor(
+                adapter=adapter,
+                config=config,
+                persona_prompt=persona,
+            )
+            executor.cli_name = cli_name  # type: ignore[attr-defined]
+            return executor
+
+        # Default: mock-compatible executor path
+        # When no preset or unsupported mode, use the first available CLI
+        adapter = self._adapter_factory.create("claude")
+        config = AdapterConfig(timeout=300, working_dir=cwd)
+        executor = CLIAgentExecutor(adapter=adapter, config=config)
+        executor.cli_name = "claude"  # type: ignore[attr-defined]
+        return executor
+
     async def _execute_pipeline(self, pipeline: Pipeline) -> None:
         """파이프라인의 전체 생명주기를 실행하는 내부 코루틴.
 
-        Phase 1에서는 상태 전이만 수행한다.
+        Hybrid 오케스트레이션 흐름:
+        1. PENDING -> PLANNING: TeamPlanner로 태스크 분해
+        2. PLANNING -> RUNNING: TaskBoard에 서브태스크 투입, AgentWorker 시작
+        3. RUNNING: AgentWorker가 태스크 소비 및 실행
+        4. RUNNING -> SYNTHESIZING: 모든 태스크 완료 후 Synthesizer로 종합
+        5. SYNTHESIZING -> COMPLETED: 종합 보고서 생성 완료
         """
         task_id = pipeline.task_id
+        pipeline_workers: list[str] = []
+        worktree_branches: list[str] = []
+
         try:
-            # PENDING -> PLANNING
+            # ── Phase 1: PENDING → PLANNING ──────────────────────────────
             self._pipelines[task_id] = pipeline.model_copy(
-                update={"status": PipelineStatus.PLANNING}
+                update={
+                    "status": PipelineStatus.PLANNING,
+                    "started_at": datetime.utcnow(),
+                }
             )
             await self._event_bus.emit(
                 OrchestratorEvent(
                     type=EventType.PIPELINE_PLANNING,
                     task_id=task_id,
                     node="orchestrator",
-                    data={"subtask_count": 0},
+                    data={},
                 )
             )
 
-            # Phase 1: stub — mark as completed without actual execution
+            # TeamPlanner 사용: 태스크 → 서브태스크 분해
+            team_preset_obj: TeamPreset | None = None
+            if pipeline.team_preset:
+                team_preset_obj = self._preset_registry.load_team_preset(pipeline.team_preset)
+
+            subtasks, used_preset = await self._team_planner.plan_team(
+                pipeline.task,
+                team_preset=team_preset_obj,
+                target_repo=pipeline.target_repo or None,
+            )
+
+            # Pipeline에 서브태스크 기록
             self._pipelines[task_id] = self._pipelines[task_id].model_copy(
-                update={"status": PipelineStatus.COMPLETED}
+                update={"subtasks": subtasks}
+            )
+
+            await self._event_bus.emit(
+                OrchestratorEvent(
+                    type=EventType.PIPELINE_PLANNING,
+                    task_id=task_id,
+                    node="orchestrator",
+                    data={"subtask_count": len(subtasks)},
+                )
+            )
+
+            # ── Phase 2: PLANNING → RUNNING ──────────────────────────────
+            self._pipelines[task_id] = self._pipelines[task_id].model_copy(
+                update={"status": PipelineStatus.RUNNING}
+            )
+            await self._event_bus.emit(
+                OrchestratorEvent(
+                    type=EventType.PIPELINE_RUNNING,
+                    task_id=task_id,
+                    node="orchestrator",
+                    data={"subtask_count": len(subtasks)},
+                )
+            )
+
+            # Worktree 설정 (target_repo가 있는 경우)
+            worktree_paths: dict[str, str] = {}
+            if pipeline.target_repo:
+                for st in subtasks:
+                    lane = st.assigned_preset or "default"
+                    if lane not in worktree_paths:
+                        branch_name = f"orch-{task_id[:8]}-{lane}"
+                        try:
+                            wt_path = await self._worktree_manager.create(
+                                pipeline.target_repo,
+                                branch_name,
+                            )
+                            worktree_paths[lane] = str(wt_path)
+                            worktree_branches.append(branch_name)
+                            await self._event_bus.emit(
+                                OrchestratorEvent(
+                                    type=EventType.WORKTREE_CREATED,
+                                    task_id=task_id,
+                                    node="orchestrator",
+                                    data={
+                                        "branch": branch_name,
+                                        "path": str(wt_path),
+                                    },
+                                )
+                            )
+                        except Exception as wt_err:
+                            logger.warning(
+                                "worktree_create_failed",
+                                task_id=task_id,
+                                lane=lane,
+                                error=str(wt_err),
+                            )
+
+            # 서브태스크 → TaskItem 변환 + TaskBoard 투입
+            for st in subtasks:
+                lane = st.assigned_preset or "default"
+                task_item = TaskItem(
+                    id=st.id,
+                    title=st.description[:200],
+                    description=st.description,
+                    lane=lane,
+                    depends_on=st.depends_on,
+                    pipeline_id=task_id,
+                    priority=st.priority,
+                    max_retries=self.config.default_max_retries,
+                )
+                await self._board.submit(task_item)
+
+            # AgentWorker 생성 및 시작 (레인별 1개)
+            lanes_needed: set[str] = {st.assigned_preset or "default" for st in subtasks}
+            for lane in lanes_needed:
+                worker_id = f"worker-{task_id[:8]}-{lane}"
+                cwd = worktree_paths.get(lane)
+                executor = self._create_executor_for_preset(lane, cwd=cwd)
+
+                worker = AgentWorker(
+                    worker_id=worker_id,
+                    lane=lane,
+                    board=self._board,
+                    executor=executor,
+                    event_bus=self._event_bus,
+                    poll_interval=0.2,
+                )
+                self._workers[worker_id] = worker
+                pipeline_workers.append(worker_id)
+                await worker.start()
+
+            # ── Phase 3: RUNNING — 모든 태스크 완료 대기 ─────────────────
+            while not self._board.is_all_done(task_id):
+                # 취소 확인
+                current = self._pipelines.get(task_id)
+                if current and current.status == PipelineStatus.CANCELLED:
+                    return
+                await asyncio.sleep(0.1)
+
+            # ── Phase 4: RUNNING → SYNTHESIZING ──────────────────────────
+            self._pipelines[task_id] = self._pipelines[task_id].model_copy(
+                update={"status": PipelineStatus.SYNTHESIZING}
+            )
+            await self._event_bus.emit(
+                OrchestratorEvent(
+                    type=EventType.PIPELINE_SYNTHESIZING,
+                    task_id=task_id,
+                    node="orchestrator",
+                    data={},
+                )
+            )
+
+            # 워커 정지
+            await self._stop_pipeline_workers(pipeline_workers)
+
+            # FileDiff 수집 (worktree가 있는 경우)
+            file_changes_map: dict[str, list[FileChange]] = {}
+            for lane_name, wt_dir in worktree_paths.items():
+                collector = FileDiffCollector(wt_dir)
+                try:
+                    changes = await collector.collect_changes()
+                    file_changes_map[lane_name] = changes
+                except Exception:
+                    logger.warning("diff_collect_failed", lane=lane_name, path=wt_dir)
+
+            # 결과 수집: TaskBoard의 DONE 태스크 → WorkerResult
+            done_tasks = self._board.get_results(task_id)
+            worker_results: list[WorkerResult] = []
+            for dt in done_tasks:
+                lane = dt.lane
+                wr = WorkerResult(
+                    subtask_id=dt.id,
+                    executor_type="cli",
+                    output=dt.result,
+                    files_changed=file_changes_map.get(lane, []),
+                )
+                worker_results.append(wr)
+
+            # 실패한 태스크도 WorkerResult로 기록
+            all_pipeline_tasks = [
+                t for t in self._board._tasks.values() if t.pipeline_id == task_id
+            ]
+            failed_tasks = [t for t in all_pipeline_tasks if t.state.value == "failed"]
+            for ft in failed_tasks:
+                wr = WorkerResult(
+                    subtask_id=ft.id,
+                    executor_type="cli",
+                    output="",
+                    error=ft.error,
+                )
+                worker_results.append(wr)
+
+            # 부분 실패 확인
+            has_failures = len(failed_tasks) > 0
+            has_successes = len(done_tasks) > 0
+
+            if has_failures and not has_successes:
+                # 모든 태스크 실패
+                self._pipelines[task_id] = self._pipelines[task_id].model_copy(
+                    update={
+                        "status": PipelineStatus.FAILED,
+                        "results": worker_results,
+                        "error": "All subtasks failed",
+                        "completed_at": datetime.utcnow(),
+                    }
+                )
+                await self._event_bus.emit(
+                    OrchestratorEvent(
+                        type=EventType.PIPELINE_FAILED,
+                        task_id=task_id,
+                        node="orchestrator",
+                        data={"error_message": "All subtasks failed"},
+                    )
+                )
+                return
+
+            # Synthesizer로 종합 보고서 생성
+            synthesis = await self._synthesizer.synthesize(
+                worker_results,
+                strategy=used_preset.synthesis_strategy,
+                task_description=pipeline.task,
+            )
+
+            # Worktree merge (target_repo가 있고 auto_merge인 경우)
+            merged = False
+            if pipeline.target_repo and self.config.auto_merge:
+                for branch in worktree_branches:
+                    try:
+                        await self._worktree_manager.merge_to_target(
+                            pipeline.target_repo,
+                            branch,
+                        )
+                        merged = True
+                        await self._event_bus.emit(
+                            OrchestratorEvent(
+                                type=EventType.WORKTREE_MERGED,
+                                task_id=task_id,
+                                node="orchestrator",
+                                data={"branch": branch},
+                            )
+                        )
+                    except Exception as merge_err:
+                        logger.warning(
+                            "worktree_merge_failed",
+                            branch=branch,
+                            error=str(merge_err),
+                        )
+
+            # ── Phase 5: SYNTHESIZING → COMPLETED ────────────────────────
+            final_status = (
+                PipelineStatus.PARTIAL_FAILURE if has_failures else PipelineStatus.COMPLETED
+            )
+            self._pipelines[task_id] = self._pipelines[task_id].model_copy(
+                update={
+                    "status": final_status,
+                    "results": worker_results,
+                    "synthesis": synthesis,
+                    "merged": merged,
+                    "completed_at": datetime.utcnow(),
+                }
             )
             await self._event_bus.emit(
                 OrchestratorEvent(
                     type=EventType.PIPELINE_COMPLETED,
                     task_id=task_id,
                     node="orchestrator",
-                    data={"synthesis_length": 0, "total_duration_ms": 0},
+                    data={
+                        "synthesis_length": len(synthesis),
+                        "total_duration_ms": 0,
+                        "status": final_status,
+                    },
                 )
             )
+
         except Exception as exc:
             self._pipelines[task_id] = self._pipelines[task_id].model_copy(
                 update={
                     "status": PipelineStatus.FAILED,
                     "error": str(exc),
+                    "completed_at": datetime.utcnow(),
                 }
             )
             await self._event_bus.emit(
@@ -338,7 +654,46 @@ class OrchestratorEngine:
                     type=EventType.PIPELINE_FAILED,
                     task_id=task_id,
                     node="orchestrator",
-                    data={"error_type": type(exc).__name__, "error_message": str(exc)},
+                    data={
+                        "error_type": type(exc).__name__,
+                        "error_message": str(exc),
+                    },
                 )
             )
             logger.exception("pipeline_execution_failed", task_id=task_id)
+        finally:
+            # Cleanup: 워커 정지, worktree 정리
+            await self._stop_pipeline_workers(pipeline_workers)
+            if pipeline.target_repo:
+                for branch in worktree_branches:
+                    try:
+                        await self._worktree_manager.cleanup(
+                            pipeline.target_repo,
+                            branch,
+                        )
+                    except Exception:
+                        logger.warning(
+                            "worktree_cleanup_failed",
+                            branch=branch,
+                        )
+            # Background task 정리
+            self._bg_tasks.pop(task_id, None)
+
+    async def _stop_pipeline_workers(
+        self,
+        worker_ids: list[str],
+    ) -> None:
+        """파이프라인에 속한 워커들을 정지한다.
+
+        Args:
+            worker_ids: 정지할 워커 ID 목록.
+        """
+        for wid in worker_ids:
+            worker = self._workers.get(wid)
+            if worker is not None:
+                try:
+                    await worker.stop()
+                except Exception:
+                    logger.warning("worker_stop_failed", worker_id=wid)
+                finally:
+                    self._workers.pop(wid, None)

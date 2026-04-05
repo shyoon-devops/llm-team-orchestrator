@@ -105,3 +105,52 @@ class WorktreeManager:
             )
 
         logger.info("worktree_cleaned", branch=branch)
+
+    async def merge_to_target(
+        self,
+        repo_path: str,
+        branch: str,
+        *,
+        target_branch: str = "main",
+    ) -> bool:
+        """worktree 브랜치의 변경사항을 대상 브랜치에 merge한다.
+
+        Args:
+            repo_path: 소스 Git 저장소 경로.
+            branch: merge할 worktree 브랜치 이름.
+            target_branch: merge 대상 브랜치. 기본값 "main".
+
+        Returns:
+            merge 성공 시 True.
+
+        Raises:
+            WorktreeCleanupError: Git 명령 실패.
+        """
+        proc = await asyncio.create_subprocess_exec(
+            "git",
+            "merge",
+            branch,
+            "--no-ff",
+            "-m",
+            f"merge: {branch} into {target_branch}",
+            cwd=repo_path,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        _, stderr = await proc.communicate()
+
+        if proc.returncode != 0:
+            logger.warning(
+                "worktree_merge_failed",
+                branch=branch,
+                target=target_branch,
+                stderr=stderr.decode(),
+            )
+            return False
+
+        logger.info(
+            "worktree_merged",
+            branch=branch,
+            target=target_branch,
+        )
+        return True
