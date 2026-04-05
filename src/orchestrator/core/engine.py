@@ -662,7 +662,8 @@ class OrchestratorEngine:
             )
 
             # Worktree 설정 (target_repo가 있는 경우)
-            worktree_paths: dict[str, str] = {}
+            worktree_paths: dict[str, str] = {}  # lane -> worktree path
+            worktree_paths_by_branch: dict[str, str] = {}  # branch -> worktree path
             if pipeline.target_repo:
                 for st in subtasks:
                     lane = st.assigned_preset or "default"
@@ -674,6 +675,7 @@ class OrchestratorEngine:
                                 branch_name,
                             )
                             worktree_paths[lane] = str(wt_path)
+                            worktree_paths_by_branch[branch_name] = str(wt_path)
                             worktree_branches.append(branch_name)
                             await self._event_bus.emit(
                                 OrchestratorEvent(
@@ -803,6 +805,63 @@ class OrchestratorEngine:
                 except Exception:
                     logger.warning("diff_collect_failed", lane=lane_name, path=wt_dir)
 
+            # Commit + merge worktree changes to target_repo
+            if pipeline.target_repo and worktree_branches:
+                for branch in worktree_branches:
+                    branch_wt_path = worktree_paths_by_branch.get(branch)
+                    if branch_wt_path:
+                        committed = await self._commit_worktree_changes(
+                            branch_wt_path, f"agent: {branch}"
+                        )
+                        if committed:
+                            logger.info(
+                                "worktree_committed",
+                                branch=branch,
+                                path=branch_wt_path,
+                            )
+
+                for branch in worktree_branches:
+                    try:
+                        merged = await self._worktree_manager.merge_to_target(branch)
+                        if merged:
+                            logger.info("worktree_merged", branch=branch)
+                            await self._event_bus.emit(
+                                OrchestratorEvent(
+                                    type=EventType.WORKTREE_MERGED,
+                                    task_id=task_id,
+                                    node="orchestrator",
+                                    data={"branch": branch},
+                                )
+                            )
+                        else:
+                            logger.warning("worktree_merge_failed", branch=branch)
+                            self._pipelines[task_id] = self._pipelines[
+                                task_id
+                            ].model_copy(
+                                update={
+                                    "error": (
+                                        self._pipelines[task_id].error
+                                        + f"merge conflict: {branch}; "
+                                    )
+                                }
+                            )
+                    except Exception as merge_err:
+                        logger.warning(
+                            "worktree_merge_failed",
+                            branch=branch,
+                            error=str(merge_err),
+                        )
+                        self._pipelines[task_id] = self._pipelines[
+                            task_id
+                        ].model_copy(
+                            update={
+                                "error": (
+                                    self._pipelines[task_id].error
+                                    + f"merge conflict: {branch}; "
+                                )
+                            }
+                        )
+
             # 결과 수집: TaskBoard의 DONE 태스크 → WorkerResult
             done_tasks = self._board.get_results(task_id)
             worker_results: list[WorkerResult] = []
@@ -929,29 +988,8 @@ class OrchestratorEngine:
                 )
             )
 
-            # Worktree merge (target_repo가 있고 auto_merge인 경우)
-            merged = False
-            if pipeline.target_repo and self.config.auto_merge:
-                for branch in worktree_branches:
-                    try:
-                        await self._worktree_manager.merge_to_target(
-                            branch,
-                        )
-                        merged = True
-                        await self._event_bus.emit(
-                            OrchestratorEvent(
-                                type=EventType.WORKTREE_MERGED,
-                                task_id=task_id,
-                                node="orchestrator",
-                                data={"branch": branch},
-                            )
-                        )
-                    except Exception as merge_err:
-                        logger.warning(
-                            "worktree_merge_failed",
-                            branch=branch,
-                            error=str(merge_err),
-                        )
+            # merged flag — set by earlier commit+merge block
+            merged = bool(pipeline.target_repo and worktree_branches)
 
             # ── Phase 5: SYNTHESIZING → COMPLETED / PARTIAL_FAILURE ─────
             final_status = (
@@ -1032,6 +1070,46 @@ class OrchestratorEngine:
                         )
             # Background task 정리
             self._bg_tasks.pop(task_id, None)
+
+    async def _commit_worktree_changes(self, worktree_path: str, message: str) -> bool:
+        """Commit any uncommitted changes in a worktree directory.
+
+        Args:
+            worktree_path: worktree 디렉토리 경로.
+            message: 커밋 메시지.
+
+        Returns:
+            변경사항이 있어 커밋되었으면 True, 변경사항 없으면 False.
+        """
+        if not os.path.isdir(worktree_path):
+            logger.warning("worktree_commit_skip_no_dir", path=worktree_path)
+            return False
+
+        # git add -A
+        proc = await asyncio.create_subprocess_exec(
+            "git", "add", "-A", cwd=worktree_path,
+            stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
+        )
+        await proc.wait()
+        if proc.returncode != 0:
+            return False
+
+        # Check if there are changes to commit
+        proc = await asyncio.create_subprocess_exec(
+            "git", "diff", "--cached", "--quiet", cwd=worktree_path,
+            stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
+        )
+        await proc.wait()
+        if proc.returncode == 0:
+            return False  # no changes
+
+        # git commit
+        proc = await asyncio.create_subprocess_exec(
+            "git", "commit", "-m", message, cwd=worktree_path,
+            stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
+        )
+        await proc.wait()
+        return proc.returncode == 0
 
     async def _stop_pipeline_workers(
         self,

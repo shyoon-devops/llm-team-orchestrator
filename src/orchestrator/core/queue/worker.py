@@ -198,6 +198,13 @@ class AgentWorker:
                         f"\n[{dep_task.lane}] {dep_task.result[:3000]}"
                     )
             prompt += "\n".join(context_parts)
+            logger.info(
+                "context_chaining",
+                task_id=task.id,
+                lane=task.lane,
+                depends_on=task.depends_on,
+                context_length=len(prompt) - len(task.description),
+            )
         return prompt
 
     async def _run_with_heartbeat(self, task: Any) -> Any:
