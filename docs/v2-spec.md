@@ -53,6 +53,54 @@ if cwd and Path(cwd).resolve() == ORCHESTRATOR_DIR:
     )
 ```
 
+### P1.5: worktree 결과물 수집 + target_repo 반영
+
+**문제:** CLI가 worktree에서 파일을 생성/수정하지만, 파이프라인 완료 후 target_repo에 반영되지 않음. my-project에 `.gitkeep`만 남고 CLI가 만든 코드가 없음.
+
+**해결:**
+
+```
+1. 각 worker 완료 후:
+   - FileDiffCollector.snapshot() → diff → 변경 파일 목록
+   - 변경 파일을 WorkerResult.files_changed에 저장
+   
+2. 모든 subtask 완료 후 (_execute_pipeline):
+   - 각 worktree 브랜치를 target_repo의 main에 merge
+   - WorktreeManager.merge_to_target(branch_name) 호출
+   - merge 충돌 시 → PARTIALLY_COMPLETED + 에러 메시지
+   
+3. worktree cleanup:
+   - merge 후 WorktreeManager.cleanup(branch_name)
+```
+
+**핵심:** CLI가 `cwd=worktree_path`에서 실행되어 파일을 생성하면, 그 파일들이 worktree의 git 변경사항으로 남음. 이걸 commit → merge → target_repo 반영.
+
+```python
+# engine._execute_pipeline 내부, 모든 subtask 완료 후:
+for branch in worktree_branches:
+    # worktree에서 변경사항 커밋
+    await self._commit_worktree_changes(branch, f"agent: {branch}")
+    # target_repo의 main에 merge
+    merged = await self._worktree_manager.merge_to_target(branch)
+    if not merged:
+        pipeline.error += f"merge conflict on {branch}; "
+```
+
+### 컨텍스트 체이닝 로그
+
+워커가 _build_prompt()를 호출할 때 **로그를 남겨야** 컨텍스트 체이닝이 실제로 동작하는지 확인 가능:
+
+```python
+# worker._build_prompt() 내부:
+if task.depends_on:
+    logger.info(
+        "context_chaining",
+        task_id=task.id,
+        depends_on=task.depends_on,
+        context_length=len(context_text),
+    )
+```
+
 ---
 
 ## 3. P2: 컨텍스트 체이닝

@@ -210,3 +210,33 @@ C-CLI-01: Claude CLI 3초 타임아웃 설정 → retry 3회 → codex fallback
 - v2-spec.md §2 cwd 자기보호 ↔ functions.md submit_task pre-conditions | ✅
 - v2-spec.md §3 _build_prompt ↔ functions.md §3.4 _run_loop | ✅ (v2에서 추가)
 - v2-spec.md §4 subtask API ↔ api-spec.md | ⚠️ api-spec.md에 아직 추가 안 됨 → v2 구현 시 추가
+
+---
+
+## 시나리오 8: v2 반복 — worktree 결과물 수집 + merge
+
+```
+사용자: "add 함수 작성" / feature-team / /home/yoon/repository/my-project
+```
+
+| Step | 동작 | 참조 문서 | 검증 |
+|------|------|----------|------|
+| 1 | POST /api/tasks → pipeline 생성 | api-spec.md | ✅ |
+| 2 | target_repo auto git init | v2-spec.md §2 | ✅ |
+| 3 | worktree 생성 (per lane) | functions.md §1.15 | ✅ |
+| 4 | architect 실행 (cwd=worktree) → stdout 수집 | functions.md §3.4 | ✅ |
+| 5 | **architect 완료 → worktree에 파일 변경 있으면 commit** | v2-spec.md §P1.5 | ✅ (신규) |
+| 6 | implementer 승격 → **_build_prompt에 architect 결과 포함** | v2-spec.md §3 | ✅ |
+| 7 | **_build_prompt 로그: "context_chaining" 출력** | v2-spec.md §P1.5 | ✅ (신규) |
+| 8 | implementer 실행 (cwd=worktree) → 코드 파일 생성 | v2-spec.md §2 | ✅ |
+| 9 | **implementer 완료 → worktree 변경사항 commit** | v2-spec.md §P1.5 | ✅ (신규) |
+| 10 | reviewer/tester 진행 (implementer 결과 포함) | v2-spec.md §3 | ✅ |
+| 11 | **모든 subtask 완료 → worktree branches를 target_repo main에 merge** | v2-spec.md §P1.5 | ✅ (신규) |
+| 12 | **merge 성공 → target_repo에 파일 반영** | v2-spec.md §P1.5 | ✅ (신규) |
+| 13 | worktree cleanup | functions.md §1.15 | ✅ |
+| 14 | Synthesizer → 종합 보고서 | functions.md §7.1 | ✅ |
+| 15 | my-project/ 에 코드 파일 존재 확인 | v2-spec.md §6 | ✅ |
+
+**교차 검증:**
+- v2-spec.md §P1.5 commit/merge ↔ functions.md §7 WorktreeManager | ✅
+- v2-spec.md §P1.5 로그 ↔ worker._build_prompt | ✅
