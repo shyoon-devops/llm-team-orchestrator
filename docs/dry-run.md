@@ -266,3 +266,20 @@ C-CLI-01: Claude CLI 3초 타임아웃 설정 → retry 3회 → codex fallback
 **교차 검증:**
 - v2-spec.md §4.5 프롬프트 지시 ↔ presets/agents/implementer.yaml constraints | ✅
 - worker._build_prompt cwd 안내 ↔ executor context cwd | ✅
+
+---
+
+## 시나리오 10: v2 iter4 — codex --ephemeral 제거
+
+| Step | 동작 | 검증 |
+|------|------|------|
+| 1-8 | 시나리오 9와 동일 | ✅ |
+| 9 | codex 명령: `codex exec --json --full-auto "{prompt}"` (**--ephemeral 없음**) | ✅ |
+| 10 | cwd=worktree_path에서 실행 → codex가 **실제 파일 생성** | ✅ |
+| 11 | worktree에 git 변경사항 존재 | ✅ |
+| 12 | _commit_worktree_changes → git commit 성공 | ✅ |
+| 13 | merge_to_target → target_repo main에 파일 반영 | ✅ |
+| 14 | my-project/에 코드 파일 존재 | ✅ |
+
+**교차 검증:**
+- functions.md §10.3 codex 명령 ↔ 구현 CodexAdapter._build_command | ✅ (--ephemeral 제거됨)

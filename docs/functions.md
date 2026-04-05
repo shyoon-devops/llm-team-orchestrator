@@ -2080,7 +2080,7 @@ class CodexAdapter(CLIAdapter):
     """Codex CLI 어댑터.
 
     headless 명령:
-        codex exec --json --ephemeral --full-auto "{prompt}"
+        codex exec --json --full-auto "{prompt}"
 
     페르소나 주입:
         CODEX_HOME 디렉토리의 instructions 파일에 persona prompt 작성.
@@ -2118,7 +2118,7 @@ class CodexAdapter(CLIAdapter):
                b. config.toml 작성 (mcp_servers 섹션)
                c. instructions 파일에 persona prompt 작성
             2. subprocess 명령어 구성:
-               - codex exec --json --ephemeral --full-auto "{prompt}"
+               - codex exec --json --full-auto "{prompt}"
                - model 지정 시: --model {model}
             3. 환경 변수 설정: OPENAI_API_KEY, CODEX_HOME (MCP 사용 시)
             4. working_dir에서 subprocess 실행
@@ -2225,7 +2225,7 @@ class GeminiAdapter(CLIAdapter):
 | CLI | Headless 명령 | 환경 변수 | 출력 형식 |
 |-----|--------------|-----------|-----------|
 | Claude Code | `claude -p "{prompt}" --output-format json --permission-mode bypassPermissions` | `ANTHROPIC_API_KEY` (없으면 firstParty 인증 사용) | JSON (단일 객체) |
-| Codex CLI | `codex exec --json --ephemeral --full-auto "{prompt}"` | `OPENAI_API_KEY` | NDJSON (이벤트 스트림) |
+| Codex CLI | `codex exec --json --full-auto "{prompt}"` | `OPENAI_API_KEY` | NDJSON (이벤트 스트림) |
 | Gemini CLI | `gemini -p "{prompt}" --output-format stream-json --yolo` | `GOOGLE_API_KEY` / `GEMINI_API_KEY` | Stream-JSON (이벤트 스트림, `result`만 필터) |
 
 ## 부록: CLI별 MCP/페르소나 주입 방법
