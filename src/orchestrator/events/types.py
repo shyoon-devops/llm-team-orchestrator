@@ -27,4 +27,5 @@ class OrchestratorEvent(BaseModel):
     type: EventType
     timestamp: float = Field(default_factory=time.time)
     node: str = ""
+    task_id: str = ""
     data: dict[str, object] = Field(default_factory=dict)

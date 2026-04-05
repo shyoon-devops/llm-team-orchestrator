@@ -83,3 +83,57 @@ class TestAgentTracker:
         # No error, statuses unchanged
         for agent in tracker.get_all():
             assert agent["status"] == AgentStatus.IDLE
+
+    def test_register_for_task(self, event_bus: EventBus) -> None:
+        """Agents registered under different task_ids are isolated."""
+        tracker = AgentTracker(event_bus)
+        tracker.register_for_task("task-A", "planner", "claude")
+        tracker.register_for_task("task-B", "planner", "gemini")
+
+        a_agents = tracker.get_all(task_id="task-A")
+        b_agents = tracker.get_all(task_id="task-B")
+
+        assert len(a_agents) == 1
+        assert a_agents[0]["provider"] == "claude"
+        assert len(b_agents) == 1
+        assert b_agents[0]["provider"] == "gemini"
+
+        # Default task is empty
+        assert tracker.get_all() == []
+
+    async def test_events_per_task(self, event_bus: EventBus) -> None:
+        """Events with task_id only affect agents registered under that task."""
+        tracker = AgentTracker(event_bus)
+        tracker.register_for_task("t1", "planner", "claude")
+        tracker.register_for_task("t2", "planner", "gemini")
+
+        # Emit event for task t1 only
+        await event_bus.publish(
+            OrchestratorEvent(type=EventType.NODE_STARTED, node="plan", task_id="t1")
+        )
+
+        t1_agent = tracker.get("planner", task_id="t1")
+        t2_agent = tracker.get("planner", task_id="t2")
+        assert t1_agent is not None
+        assert t1_agent["status"] == AgentStatus.WORKING
+        assert t2_agent is not None
+        assert t2_agent["status"] == AgentStatus.IDLE
+
+    def test_reset_all_per_task(self, event_bus: EventBus) -> None:
+        """reset_all only resets agents for the specified task."""
+        tracker = AgentTracker(event_bus)
+        tracker.register_for_task("t1", "planner", "claude")
+        tracker.register_for_task("t2", "planner", "gemini")
+
+        # Manually set both to WORKING
+        tracker._tasks["t1"]["planner"].status = AgentStatus.WORKING
+        tracker._tasks["t2"]["planner"].status = AgentStatus.WORKING
+
+        tracker.reset_all(task_id="t1")
+
+        t1 = tracker.get("planner", task_id="t1")
+        t2 = tracker.get("planner", task_id="t2")
+        assert t1 is not None
+        assert t1["status"] == AgentStatus.IDLE
+        assert t2 is not None
+        assert t2["status"] == AgentStatus.WORKING

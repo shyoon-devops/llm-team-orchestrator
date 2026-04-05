@@ -41,3 +41,6 @@ Thumbs.db
 /artifacts/
 frontend/node_modules/
 frontend/dist/
+
+# Test target repo (★ PoC 전용 — agent testing sandbox)
+test-target-repo/

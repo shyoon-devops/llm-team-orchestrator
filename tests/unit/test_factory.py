@@ -34,17 +34,23 @@ class TestAdapterFactory:
             await factory.create("test", agent_def)
 
     async def test_unhealthy_cli_falls_back_to_mock(self, factory: AdapterFactory) -> None:
-        """codex/gemini CLI not installed → should fall back to mock."""
-        agent_def = AgentDef(cli="codex", role="test")
+        """Unknown CLI tool with fallback → should fall back to mock."""
+        agent_def = AgentDef(cli="nonexistent_tool_xyz", role="test")
         adapter = await factory.create("test", agent_def)
         assert isinstance(adapter, MockCLIAdapter)
+
+    async def test_installed_cli_creates_real_adapter(self, factory: AdapterFactory) -> None:
+        """Installed CLI (codex) → should create real adapter, not mock."""
+        from orchestrator.adapters.codex import CodexAdapter
+
+        agent_def = AgentDef(cli="codex", role="test")
+        adapter = await factory.create("test", agent_def)
+        assert isinstance(adapter, CodexAdapter)
 
     async def test_claude_firstparty_key(self, factory: AdapterFactory) -> None:
         """Without key pool, Claude should get 'firstparty' key."""
         agent_def = AgentDef(cli="claude", role="test")
-        # Claude is installed so it won't fallback — but key should be firstparty
         adapter = await factory.create("test", agent_def)
-        # Either real or mock, config should reflect firstparty
         if isinstance(adapter, ClaudeAdapter):
             assert adapter.config.api_key == "firstparty"
 
@@ -55,8 +61,11 @@ class TestAdapterFactory:
         factory = AdapterFactory(key_pool=pool, mock_fallback=True)
         agent_def = AgentDef(cli="codex", role="test")
         adapter = await factory.create("test", agent_def)
-        # codex is not installed, falls back to mock, but key was resolved
-        assert isinstance(adapter, MockCLIAdapter)
+        # codex IS installed, so we get a real adapter with the pool key
+        from orchestrator.adapters.codex import CodexAdapter
+
+        assert isinstance(adapter, CodexAdapter)
+        assert adapter.config.api_key == "sk-test-1"
 
     async def test_key_pool_round_robin(self) -> None:
         """KeyPool round-robin should provide different keys."""

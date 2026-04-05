@@ -27,6 +27,7 @@ def create_plan_node(
     adapter: CLIAdapter,
     artifact_store: ArtifactStore,
     event_bus: EventBus | None = None,
+    task_id: str = "",
 ) -> Any:
     """Create a plan node that generates a task plan."""
 
@@ -34,7 +35,9 @@ def create_plan_node(
         log = logger.bind(node="plan", task=state["task"][:80])
         log.info("planning_started")
         if event_bus:
-            await event_bus.publish(OrchestratorEvent(type=EventType.NODE_STARTED, node="plan"))
+            await event_bus.publish(
+                OrchestratorEvent(type=EventType.NODE_STARTED, node="plan", task_id=task_id)
+            )
 
         prompt = (
             "You are a software architect. "
@@ -60,6 +63,7 @@ def create_plan_node(
                     OrchestratorEvent(
                         type=EventType.NODE_COMPLETED,
                         node="plan",
+                        task_id=task_id,
                         data={"tokens": result.tokens_used},
                     )
                 )
@@ -74,7 +78,10 @@ def create_plan_node(
             if event_bus:
                 await event_bus.publish(
                     OrchestratorEvent(
-                        type=EventType.NODE_FAILED, node="plan", data={"error": str(e)}
+                        type=EventType.NODE_FAILED,
+                        node="plan",
+                        task_id=task_id,
+                        data={"error": str(e)},
                     )
                 )
             return {
@@ -91,6 +98,7 @@ def create_implement_node(
     adapter: CLIAdapter,
     artifact_store: ArtifactStore,
     event_bus: EventBus | None = None,
+    task_id: str = "",
 ) -> Any:
     """Create an implement node that generates code based on the plan."""
 
@@ -99,7 +107,9 @@ def create_implement_node(
         log.info("implementation_started")
         if event_bus:
             await event_bus.publish(
-                OrchestratorEvent(type=EventType.NODE_STARTED, node="implement")
+                OrchestratorEvent(
+                    type=EventType.NODE_STARTED, node="implement", task_id=task_id
+                )
             )
 
         plan = state.get("plan_summary", "")
@@ -125,6 +135,7 @@ Write clean, well-tested code. Include type annotations."""
                     OrchestratorEvent(
                         type=EventType.NODE_COMPLETED,
                         node="implement",
+                        task_id=task_id,
                         data={"tokens": result.tokens_used},
                     )
                 )
@@ -140,7 +151,10 @@ Write clean, well-tested code. Include type annotations."""
             if event_bus:
                 await event_bus.publish(
                     OrchestratorEvent(
-                        type=EventType.NODE_FAILED, node="implement", data={"error": str(e)}
+                        type=EventType.NODE_FAILED,
+                        node="implement",
+                        task_id=task_id,
+                        data={"error": str(e)},
                     )
                 )
             return {
@@ -157,6 +171,7 @@ def create_review_node(
     adapter: CLIAdapter,
     artifact_store: ArtifactStore,
     event_bus: EventBus | None = None,
+    task_id: str = "",
 ) -> Any:
     """Create a review node that reviews the implementation."""
 
@@ -164,7 +179,9 @@ def create_review_node(
         log = logger.bind(node="review", task=state["task"][:80])
         log.info("review_started")
         if event_bus:
-            await event_bus.publish(OrchestratorEvent(type=EventType.NODE_STARTED, node="review"))
+            await event_bus.publish(
+                OrchestratorEvent(type=EventType.NODE_STARTED, node="review", task_id=task_id)
+            )
 
         # Load implementation if available
         impl_content = ""
@@ -197,6 +214,7 @@ Provide:
                     OrchestratorEvent(
                         type=EventType.NODE_COMPLETED,
                         node="review",
+                        task_id=task_id,
                         data={"tokens": result.tokens_used},
                     )
                 )
@@ -211,7 +229,10 @@ Provide:
             if event_bus:
                 await event_bus.publish(
                     OrchestratorEvent(
-                        type=EventType.NODE_FAILED, node="review", data={"error": str(e)}
+                        type=EventType.NODE_FAILED,
+                        node="review",
+                        task_id=task_id,
+                        data={"error": str(e)},
                     )
                 )
             return {
