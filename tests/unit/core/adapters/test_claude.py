@@ -1,9 +1,11 @@
 """Tests for core/adapters/claude.py."""
 
+import json
+
 import pytest
 
 from orchestrator.core.adapters.claude import ClaudeAdapter
-from orchestrator.core.errors.exceptions import CLIParseError
+from orchestrator.core.errors.exceptions import CLIExecutionError, CLIParseError
 from orchestrator.core.models.schemas import AdapterConfig
 
 
@@ -12,7 +14,8 @@ def test_build_command_basic():
     config = AdapterConfig()
     cmd = adapter._build_command("hello world", config)
     assert "claude" in cmd
-    assert "--bare" in cmd
+    # --bare is NOT used (intentionally omitted for stability)
+    assert "--bare" not in cmd
     assert "-p" in cmd
     assert "hello world" in cmd
     assert "--output-format" in cmd
@@ -39,8 +42,6 @@ def test_build_command_with_model():
 
 def test_parse_output_json():
     adapter = ClaudeAdapter()
-    import json
-
     data = {"result": "JWT middleware implemented", "num_tokens": 100}
     result = adapter._parse_output(json.dumps(data), "")
     assert "JWT middleware" in result.output
@@ -57,3 +58,11 @@ def test_parse_output_plain_text():
     adapter = ClaudeAdapter()
     result = adapter._parse_output("just plain text", "")
     assert result.output == "just plain text"
+
+
+def test_parse_output_is_error():
+    """Claude JSON with is_error=True should raise CLIExecutionError."""
+    adapter = ClaudeAdapter()
+    data = {"result": "Something went wrong", "is_error": True}
+    with pytest.raises(CLIExecutionError, match="Something went wrong"):
+        adapter._parse_output(json.dumps(data), "")

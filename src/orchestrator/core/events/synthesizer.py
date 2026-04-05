@@ -45,19 +45,22 @@ class Synthesizer:
     async def synthesize(
         self,
         results: list[WorkerResult],
+        task: str,
         *,
         strategy: SynthesisStrategy | None = None,
-        task_description: str = "",
     ) -> str:
         """결과를 종합하여 보고서를 생성한다.
 
         Args:
             results: 서브태스크 실행 결과 목록.
+            task: 원본 사용자 태스크 설명.
             strategy: 종합 전략 오버라이드. None이면 기본값 사용.
-            task_description: 원본 태스크 설명.
 
         Returns:
             종합 보고서 문자열 (마크다운 형식).
+
+        Raises:
+            ValueError: results가 비어있는 경우.
         """
         if not results:
             return "결과가 없습니다."
@@ -79,7 +82,7 @@ class Synthesizer:
 
         builder = strategy_map.get(effective_strategy, self._build_narrative)
         report = builder(
-            task_description=task_description,
+            task_description=task,
             success_results=success_results,
             failed_results=failed_results,
             all_results=results,

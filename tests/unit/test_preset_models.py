@@ -122,8 +122,8 @@ class TestAgentPreset:
             persona=PersonaDef(role="Dev", goal="Code"),
         )
         assert preset.name == "test-agent"
-        assert preset.execution_mode == "cli"
         assert preset.preferred_cli == "claude"
+        assert preset.skills == []
         assert preset.fallback_cli == []
         assert preset.model is None
         assert preset.limits.timeout == 300
@@ -140,18 +140,20 @@ class TestAgentPreset:
         with pytest.raises(ValidationError):
             AgentPreset(name="UPPER", persona=PersonaDef(role="Dev", goal="Code"))
 
-    def test_execution_mode_mcp(self):
+    def test_cli_agent_with_mcp_servers(self):
+        """CLI 에이전트에 MCP 서버를 도구로 주입."""
         preset = AgentPreset(
             name="mcp-agent",
             persona=PersonaDef(role="Analyst", goal="Analyze"),
-            execution_mode="mcp",
-            preferred_cli=None,
+            preferred_cli="claude",
             mcp_servers={
                 "es": MCPServerDef(command="npx", args=["-y", "mcp-es"]),
             },
+            skills=["log-analysis"],
         )
-        assert preset.execution_mode == "mcp"
+        assert preset.preferred_cli == "claude"
         assert "es" in preset.mcp_servers
+        assert "log-analysis" in preset.skills
 
     def test_extra_fields_forbidden(self):
         with pytest.raises(ValidationError):

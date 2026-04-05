@@ -299,11 +299,8 @@ def _normalize_agent_yaml(data: dict[str, Any]) -> dict[str, Any]:
         if key in data:
             result[key] = data[key]
 
-    # execution -> execution_mode, preferred_cli, fallback_cli, model
     if "execution" in data:
         exec_data = data["execution"]
-        if "mode" in exec_data:
-            result["execution_mode"] = exec_data["mode"]
         if "preferred_cli" in exec_data:
             cli_val = exec_data["preferred_cli"]
             result["preferred_cli"] = cli_val if cli_val else None
@@ -316,8 +313,7 @@ def _normalize_agent_yaml(data: dict[str, Any]) -> dict[str, Any]:
         if exec_data.get("model_override"):
             result["model"] = exec_data["model_override"]
     else:
-        # Direct field mapping (already in model format)
-        for key in ("execution_mode", "preferred_cli", "fallback_cli", "model"):
+        for key in ("preferred_cli", "fallback_cli", "model"):
             if key in data:
                 result[key] = data[key]
 

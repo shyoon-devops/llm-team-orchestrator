@@ -18,7 +18,10 @@ async def engine(tmp_path):
         checkpoint_enabled=True,
         checkpoint_db_path=str(tmp_path / "test_checkpoints.sqlite"),
     )
-    return OrchestratorEngine(config=config)
+    eng = OrchestratorEngine(config=config)
+    await eng.start()
+    yield eng
+    await eng.shutdown()
 
 
 @pytest.fixture

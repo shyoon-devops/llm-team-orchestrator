@@ -1,31 +1,81 @@
 # Agent Team Orchestrator
 
-> 인간 팀과 동일한 방식으로 일하는 범용 AI 에이전트 팀 플랫폼.
+> Multi-LLM agent team orchestrator: coordinate Claude Code, Codex CLI, and Gemini CLI as a collaborative team.
 
-## Status
+## Quick Start
 
-- **MVP 기획 완료** — 구현 대기
-- **PoC 검증 완료** — `main` 브랜치 (v0.8.0-poc, 171 tests)
+```bash
+# Install
+uv sync --dev
 
-## Documents
+# Run CLI
+uv run orchestrator --help
 
-- [기획서 (SPEC)](docs/SPEC.md) — 비전, 아키텍처, 도메인 모델, API 스펙
-- [실행 계획 (MVP-PLAN)](MVP-PLAN.md) — 7 Phase / 9 Week
+# Start API server
+uv run orchestrator serve
 
-## Key Features (planned)
+# Submit a task
+uv run orchestrator run "Implement JWT auth middleware" --team-preset feature-team --wait
+```
 
-- **에이전트 자유 정의**: 페르소나 + MCP 도구 + 제약을 YAML 프리셋으로
-- **팀 자유 구성**: 프리셋 조합 또는 오케스트레이터 자동 구성
-- **칸반 작업 분배**: 에이전트가 독립적으로 태스크 소비
-- **결과 종합 보고**: Synthesizer로 복수 결과 합성
-- **도메인 무관**: 코딩, 인프라 운영, 장애 분석, 업무 대행
+## Features
+
+- **Agent Presets**: Define agents with persona + tools + constraints in YAML
+- **Team Composition**: Combine presets or let the orchestrator auto-compose
+- **Kanban Task Board**: Agents independently consume tasks from lanes
+- **DAG Dependencies**: Subtask execution respects dependency ordering
+- **Result Synthesis**: Synthesizer merges multi-agent outputs into reports
+- **Error Handling**: Retry with exponential backoff, CLI fallback chains
+- **Checkpointing**: SQLite-backed pipeline state for resume after failure
+- **Real-time Events**: WebSocket streaming with subscription filtering
+- **Git Worktree Isolation**: Each agent works in its own branch
 
 ## Architecture
 
 ```
-[CLI / Web / MCP] → [API (FastAPI)] → [Core Engine]
-                                          ├── TaskBoard (칸반 큐)
-                                          ├── AgentExecutor (CLI + MCP)
-                                          ├── Presets (YAML)
-                                          └── Synthesizer (결과 종합)
+[CLI / Web / MCP] -> [API (FastAPI)] -> [OrchestratorEngine]
+                                           |-- TeamPlanner (decomposition)
+                                           |-- TaskBoard (kanban queue)
+                                           |-- AgentWorker (per-lane consumer)
+                                           |-- AgentExecutor (CLI + MCP)
+                                           |-- PresetRegistry (YAML presets)
+                                           |-- Synthesizer (result aggregation)
+                                           |-- WorktreeManager (git isolation)
+                                           |-- CheckpointStore (resume support)
+                                           \-- EventBus (real-time events)
 ```
+
+## API
+
+- `POST /api/tasks` -- submit task
+- `GET /api/tasks` -- list pipelines
+- `GET /api/tasks/{id}` -- pipeline detail
+- `POST /api/tasks/{id}/resume` -- resume failed pipeline
+- `DELETE /api/tasks/{id}` -- cancel pipeline
+- `GET /api/board` -- kanban board state
+- `GET /api/board/tasks/{id}` -- board task detail
+- `GET /api/agents` -- agent worker status
+- `GET /api/presets/agents` -- agent presets
+- `GET /api/presets/teams` -- team presets
+- `GET /api/artifacts/{task_id}` -- pipeline artifacts
+- `GET /api/events` -- event history
+- `GET /api/health` -- health check
+- `WS /ws/events` -- real-time event stream
+
+## Development
+
+```bash
+# Lint + format
+uv run ruff check src/ tests/ --fix
+uv run ruff format src/ tests/
+
+# Type check
+uv run mypy src/
+
+# Tests
+uv run pytest tests/unit/ tests/api/ -v
+```
+
+## License
+
+MIT

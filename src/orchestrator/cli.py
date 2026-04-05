@@ -22,21 +22,48 @@ def run(
     task: str = typer.Argument(..., help="태스크 설명"),
     repo: str | None = typer.Option(None, "--repo", "-r", help="대상 Git 저장소 경로"),
     team_preset: str | None = typer.Option(None, "--team-preset", "-t", help="팀 프리셋 이름"),
-    timeout: int = typer.Option(300, "--timeout", help="타임아웃 (초)"),
+    timeout: int = typer.Option(600, "--timeout", help="타임아웃 (초)"),
+    wait: bool = typer.Option(True, "--wait/--no-wait", help="완료까지 대기"),
 ) -> None:
     """태스크를 실행한다."""
 
     async def _run() -> None:
         from orchestrator.core.engine import OrchestratorEngine
+        from orchestrator.core.models.pipeline import PipelineStatus
 
         engine = OrchestratorEngine()
-        pipeline = await engine.submit_task(
-            task,
-            team_preset=team_preset,
-            target_repo=repo,
-        )
-        console.print(f"[green]Pipeline created:[/green] {pipeline.task_id}")
-        console.print(f"[blue]Status:[/blue] {pipeline.status}")
+        await engine.start()
+        try:
+            pipeline = await engine.submit_task(
+                task,
+                team_preset=team_preset,
+                target_repo=repo,
+            )
+            console.print(f"[green]Pipeline created:[/green] {pipeline.task_id}")
+            console.print(f"[blue]Status:[/blue] {pipeline.status}")
+
+            if wait:
+                terminal_states = {
+                    PipelineStatus.COMPLETED,
+                    PipelineStatus.FAILED,
+                    PipelineStatus.PARTIAL_FAILURE,
+                    PipelineStatus.CANCELLED,
+                }
+                elapsed = 0
+                while elapsed < timeout:
+                    await asyncio.sleep(1)
+                    elapsed += 1
+                    current = await engine.get_pipeline(pipeline.task_id)
+                    if current and current.status in terminal_states:
+                        console.print(f"[blue]Final status:[/blue] {current.status}")
+                        if current.synthesis:
+                            console.print("\n[bold]Synthesis Report:[/bold]")
+                            console.print(current.synthesis)
+                        break
+                else:
+                    console.print(f"[yellow]Timeout ({timeout}s) — still running[/yellow]")
+        finally:
+            await engine.shutdown()
 
     asyncio.run(_run())
 
@@ -119,13 +146,11 @@ def presets_list() -> None:
         table = Table(title="Agent Presets")
         table.add_column("Name")
         table.add_column("Description")
-        table.add_column("Mode")
         table.add_column("CLI")
         for p in agent_presets:
             table.add_row(
                 p.name,
                 p.description,
-                p.execution_mode,
                 p.preferred_cli or "auto",
             )
         console.print(table)
@@ -160,7 +185,6 @@ def presets_show(
         preset = engine.load_agent_preset(name)
         console.print(f"[bold]Agent Preset:[/bold] {preset.name}")
         console.print(f"[blue]Description:[/blue] {preset.description}")
-        console.print(f"[blue]Mode:[/blue] {preset.execution_mode}")
         console.print(f"[blue]CLI:[/blue] {preset.preferred_cli or 'auto'}")
         if preset.fallback_cli:
             console.print(f"[blue]Fallback:[/blue] {', '.join(preset.fallback_cli)}")

@@ -51,7 +51,6 @@ class CreateAgentPresetRequest(BaseModel):
     description: str = Field(default="", max_length=500)
     tags: list[str] = Field(default_factory=list)
     persona: PersonaDef
-    execution_mode: Literal["cli", "mcp"] = Field(default="cli")
     preferred_cli: Literal["claude", "codex", "gemini"] | None = Field(default="claude")
     fallback_cli: list[Literal["claude", "codex", "gemini"]] = Field(default_factory=list)
     model: str | None = Field(default=None)
@@ -192,6 +191,73 @@ async def get_lanes(request: Request) -> dict[str, Any]:
             }
         )
     return {"lanes": lanes}
+
+
+@router.get("/board/tasks/{task_id}")
+async def get_board_task(task_id: str, request: Request) -> dict[str, Any]:
+    """칸반 보드의 특정 태스크 상세를 조회한다."""
+    engine = get_engine(request)
+    task_item = engine.get_board_task(task_id)
+    if task_item is None:
+        raise HTTPException(status_code=404, detail=f"Board task not found: {task_id}")
+    # Enrich with pipeline context
+    result = task_item.model_dump()
+    pipeline = await engine.get_pipeline(task_item.pipeline_id)
+    result["pipeline_task"] = pipeline.task if pipeline else ""
+    # Include related events (last 50)
+    events = engine.get_events(task_id=task_item.pipeline_id)
+    task_events = [
+        e.model_dump()
+        for e in events
+        if e.data.get("subtask_id") == task_id or e.data.get("task_id") == task_id
+    ][:50]
+    result["events"] = task_events
+    return result
+
+
+# ============================================================
+# Artifact endpoints
+# ============================================================
+
+
+@router.get("/artifacts/{task_id}")
+async def list_artifacts(task_id: str, request: Request) -> dict[str, Any]:
+    """파이프라인의 아티팩트 목록을 조회한다."""
+    engine = get_engine(request)
+    pipeline = await engine.get_pipeline(task_id)
+    if pipeline is None:
+        raise HTTPException(status_code=404, detail=f"Task not found: {task_id}")
+    artifacts = await engine.list_artifacts(task_id)
+    return {"task_id": task_id, "artifacts": artifacts}
+
+
+@router.get("/artifacts/{task_id}/{path:path}")
+async def download_artifact(
+    task_id: str,
+    path: str,
+    request: Request,
+) -> Any:
+    """아티팩트 파일을 다운로드한다."""
+    from fastapi.responses import Response
+
+    engine = get_engine(request)
+    pipeline = await engine.get_pipeline(task_id)
+    if pipeline is None:
+        raise HTTPException(status_code=404, detail=f"Task not found: {task_id}")
+    content = await engine.get_artifact(task_id, path)
+    if content is None:
+        raise HTTPException(status_code=404, detail=f"Artifact not found: {path}")
+    # Content-Type based on extension
+    ext = path.rsplit(".", 1)[-1] if "." in path else ""
+    content_type_map = {
+        "json": "application/json",
+        "md": "text/markdown",
+        "py": "text/plain",
+        "ts": "text/plain",
+        "js": "text/plain",
+    }
+    ct = content_type_map.get(ext, "application/octet-stream")
+    return Response(content=content, media_type=ct)
 
 
 # ============================================================

@@ -80,6 +80,26 @@ class OrchestratorEngine:
         self._workers: dict[str, AgentWorker] = {}
         self._bg_tasks: dict[str, asyncio.Task[None]] = {}
 
+    async def start(self) -> None:
+        """엔진을 시작한다. 리소스 초기화."""
+        logger.info("engine_starting")
+
+    async def shutdown(self) -> None:
+        """엔진을 종료한다. 워커 정지, 리소스 해제."""
+        logger.info("engine_shutting_down")
+        # Stop all active workers
+        for wid, worker in list(self._workers.items()):
+            try:
+                await worker.stop()
+            except Exception:
+                logger.warning("worker_stop_failed_on_shutdown", worker_id=wid)
+        self._workers.clear()
+        # Cancel background tasks
+        for _tid, bg_task in list(self._bg_tasks.items()):
+            bg_task.cancel()
+        self._bg_tasks.clear()
+        logger.info("engine_shutdown_complete")
+
     @property
     def event_bus(self) -> EventBus:
         """이벤트 버스를 반환한다."""
@@ -344,6 +364,82 @@ class OrchestratorEngine:
         """칸반 보드의 현재 상태를 반환한다."""
         return self._board.get_board_state()
 
+    def get_board_task(self, task_id: str) -> TaskItem | None:
+        """보드에서 특정 태스크를 조회한다.
+
+        Args:
+            task_id: 태스크 ID.
+
+        Returns:
+            TaskItem 또는 None.
+        """
+        return self._board.get_task(task_id)
+
+    async def list_artifacts(self, task_id: str) -> list[dict[str, Any]]:
+        """파이프라인의 아티팩트 목록을 반환한다.
+
+        Args:
+            task_id: 파이프라인 ID.
+
+        Returns:
+            아티팩트 메타데이터 목록.
+        """
+        pipeline = self._pipelines.get(task_id)
+        if pipeline is None:
+            return []
+        artifacts: list[dict[str, Any]] = []
+        # Results as artifacts
+        for wr in pipeline.results:
+            if wr.output:
+                artifacts.append(
+                    {
+                        "path": f"subtask-{wr.subtask_id}/output.json",
+                        "type": "agent_output",
+                        "size_bytes": len(wr.output.encode("utf-8")),
+                        "agent": None,
+                        "subtask_id": wr.subtask_id,
+                        "created_at": pipeline.completed_at.isoformat()
+                        if pipeline.completed_at
+                        else None,
+                    }
+                )
+        # Synthesis as artifact
+        if pipeline.synthesis:
+            artifacts.append(
+                {
+                    "path": "synthesis/final-report.md",
+                    "type": "synthesis",
+                    "size_bytes": len(pipeline.synthesis.encode("utf-8")),
+                    "agent": None,
+                    "subtask_id": None,
+                    "created_at": pipeline.completed_at.isoformat()
+                    if pipeline.completed_at
+                    else None,
+                }
+            )
+        return artifacts
+
+    async def get_artifact(self, task_id: str, path: str) -> str | None:
+        """아티팩트 파일 내용을 반환한다.
+
+        Args:
+            task_id: 파이프라인 ID.
+            path: 아티팩트 상대 경로.
+
+        Returns:
+            파일 내용 또는 None.
+        """
+        pipeline = self._pipelines.get(task_id)
+        if pipeline is None:
+            return None
+        if path == "synthesis/final-report.md" and pipeline.synthesis:
+            return pipeline.synthesis
+        # Check subtask outputs
+        for wr in pipeline.results:
+            if path == f"subtask-{wr.subtask_id}/output.json" and wr.output:
+                return wr.output
+        return None
+
     def list_agents(self) -> list[dict[str, Any]]:
         """현재 활성화된 에이전트 워커 상태를 반환한다."""
         return [w.get_status() for w in self._workers.values()]
@@ -395,7 +491,7 @@ class OrchestratorEngine:
             logger.warning("preset_not_found_using_default", preset_name=preset_name)
             preset = None
 
-        if preset is not None and preset.execution_mode == "cli":
+        if preset is not None and preset.preferred_cli is not None:
             cli_name = preset.preferred_cli or "claude"
             adapter = self._adapter_factory.create(cli_name)
             config = AdapterConfig(
@@ -547,6 +643,18 @@ class OrchestratorEngine:
                     max_retries=self.config.default_max_retries,
                 )
                 await self._board.submit(task_item)
+                await self._event_bus.emit(
+                    OrchestratorEvent(
+                        type=EventType.TASK_SUBMITTED,
+                        task_id=task_id,
+                        node="orchestrator",
+                        data={
+                            "subtask_id": st.id,
+                            "lane": lane,
+                            "description": st.description[:200],
+                        },
+                    )
+                )
 
             # AgentWorker 생성 및 시작 (레인별 1개)
             lanes_needed: set[str] = {st.assigned_preset or "default" for st in subtasks}
@@ -715,12 +823,25 @@ class OrchestratorEngine:
                 return
 
             # <50% 실패 또는 0% 실패 → 종합 진행
+            # synthesis.started 이벤트
+            await self._event_bus.emit(
+                OrchestratorEvent(
+                    type=EventType.SYNTHESIS_STARTED,
+                    task_id=task_id,
+                    node="orchestrator",
+                    data={
+                        "strategy": used_preset.synthesis_strategy,
+                        "input_count": len(worker_results),
+                    },
+                )
+            )
+
             # Synthesizer로 종합 보고서 생성 (실패 정보 포함)
             synthesis_start = time.monotonic()
             synthesis = await self._synthesizer.synthesize(
                 worker_results,
+                pipeline.task,
                 strategy=used_preset.synthesis_strategy,
-                task_description=pipeline.task,
             )
             synthesis_ms = int((time.monotonic() - synthesis_start) * 1000)
             logger.info(
@@ -730,13 +851,25 @@ class OrchestratorEngine:
                 report_length=len(synthesis),
             )
 
+            # synthesis.completed 이벤트
+            await self._event_bus.emit(
+                OrchestratorEvent(
+                    type=EventType.SYNTHESIS_COMPLETED,
+                    task_id=task_id,
+                    node="orchestrator",
+                    data={
+                        "result_preview": synthesis[:200],
+                        "synthesis_ms": synthesis_ms,
+                    },
+                )
+            )
+
             # Worktree merge (target_repo가 있고 auto_merge인 경우)
             merged = False
             if pipeline.target_repo and self.config.auto_merge:
                 for branch in worktree_branches:
                     try:
                         await self._worktree_manager.merge_to_target(
-                            pipeline.target_repo,
                             branch,
                         )
                         merged = True
@@ -825,7 +958,6 @@ class OrchestratorEngine:
                 for branch in worktree_branches:
                     try:
                         await self._worktree_manager.cleanup(
-                            pipeline.target_repo,
                             branch,
                         )
                     except Exception:

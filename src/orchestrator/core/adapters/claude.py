@@ -16,12 +16,17 @@ logger = structlog.get_logger()
 class ClaudeAdapter(CLIAdapter):
     """Claude Code CLI 어댑터.
 
-    ``claude --bare -p "prompt" --output-format json`` 형태로 실행한다.
+    ``claude -p "prompt" --output-format json --permission-mode bypassPermissions``
+    형태로 실행한다. firstParty 인증 사용 (API 키 불필요).
+
+    Note: --bare는 사용하지 않는다 — JSON 출력이 불안정해질 수 있음.
     """
 
     cli_name: str = "claude"
 
     def _get_api_key_env_var(self) -> str:
+        # Claude Code uses firstParty auth (no API key needed),
+        # but we still set this for fallback/proxy scenarios.
         return "ANTHROPIC_API_KEY"
 
     def _build_command(
@@ -31,10 +36,13 @@ class ClaudeAdapter(CLIAdapter):
         *,
         system_prompt: str | None = None,
     ) -> list[str]:
-        """Claude CLI 명령어를 구성한다."""
+        """Claude CLI 명령어를 구성한다.
+
+        Note: --bare is intentionally not used; it can produce
+        unstable output in certain scenarios.
+        """
         cmd = [
             self.cli_name,
-            "--bare",
             "-p",
             prompt,
             "--output-format",
@@ -68,11 +76,19 @@ class ClaudeAdapter(CLIAdapter):
         try:
             data = json.loads(stdout)
         except json.JSONDecodeError:
-            # --bare mode may output plain text
+            # Plain text output (fallback)
             return AgentResult(output=stdout.strip(), raw={"raw_stdout": stdout[:2000]})
 
-        # Claude JSON output contains a 'result' field
+        # Claude JSON output: check for is_error flag
         if isinstance(data, dict):
+            if data.get("is_error", False):
+                error_msg = data.get("result", data.get("error", "Unknown Claude error"))
+                raise CLIExecutionError(
+                    f"Claude returned error: {error_msg}",
+                    cli=self.cli_name,
+                    stdout=stdout[:2000],
+                    stderr=stderr[:2000],
+                )
             output_text = data.get("result", data.get("output", stdout.strip()))
             return AgentResult(
                 output=str(output_text),

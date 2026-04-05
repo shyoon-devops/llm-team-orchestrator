@@ -371,7 +371,7 @@ async def test_synthesizer_includes_failures() -> None:
 
     report = await synthesizer.synthesize(
         results,
-        task_description="JWT 인증 구현",
+        "JWT 인증 구현",
     )
 
     # 보고서에 실패 정보가 포함되어야 함
@@ -399,8 +399,8 @@ async def test_synthesizer_narrative_all_success() -> None:
 
     report = await synthesizer.synthesize(
         results,
+        "테스트 태스크",
         strategy="narrative",
-        task_description="테스트 태스크",
     )
 
     assert "종합 보고서" in report
@@ -430,8 +430,8 @@ async def test_synthesizer_structured_strategy() -> None:
 
     report = await synthesizer.synthesize(
         results,
+        "구조화 테스트",
         strategy="structured",
-        task_description="구조화 테스트",
     )
 
     assert "구조화 보고서" in report
@@ -466,8 +466,8 @@ async def test_synthesizer_checklist_strategy() -> None:
 
     report = await synthesizer.synthesize(
         results,
+        "체크리스트 테스트",
         strategy="checklist",
-        task_description="체크리스트 테스트",
     )
 
     assert "체크리스트" in report
@@ -480,5 +480,5 @@ async def test_synthesizer_checklist_strategy() -> None:
 async def test_synthesizer_empty_results() -> None:
     """빈 결과 목록에 대해 적절한 메시지를 반환한다."""
     synthesizer = Synthesizer()
-    report = await synthesizer.synthesize([])
+    report = await synthesizer.synthesize([], "")
     assert report == "결과가 없습니다."

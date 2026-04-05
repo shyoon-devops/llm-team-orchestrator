@@ -59,12 +59,12 @@ class AgentPreset(BaseModel):
     description: str = Field(default="", max_length=500)
     tags: list[str] = Field(default_factory=list)
     persona: PersonaDef
-    execution_mode: Literal["cli", "mcp"] = Field(default="cli")
     preferred_cli: Literal["claude", "codex", "gemini"] | None = Field(default="claude")
     fallback_cli: list[Literal["claude", "codex", "gemini"]] = Field(default_factory=list)
     model: str | None = Field(default=None)
     tools: ToolAccess = Field(default_factory=ToolAccess)
     mcp_servers: dict[str, MCPServerDef] = Field(default_factory=dict)
+    skills: list[str] = Field(default_factory=list)
     limits: AgentLimits = Field(default_factory=AgentLimits)
 
     model_config = {"extra": "forbid"}

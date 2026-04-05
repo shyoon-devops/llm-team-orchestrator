@@ -387,3 +387,80 @@
 - [x] ruff format --check src/ tests/ -- 100 files already formatted
 - [x] mypy src/ -- Success: no issues found in 52 source files
 - [x] pytest tests/unit/ tests/api/ tests/e2e/ -v -- 227 passed (213 Phase 1-5 + 14 Phase 6)
+
+---
+
+# Phase 7 v4 Implementation Checklist (Branch B — Verification Gap Fixes)
+
+## H1: Synthesizer.synthesize() signature
+- [x] Changed `task_description: str = ""` to `task: str` as positional parameter
+- [x] Updated engine.py call site
+- [x] Updated all test calls (test_partial_failure.py)
+
+## H2: WorktreeManager.cleanup() signature
+- [x] Changed from `cleanup(repo_path, branch)` to `cleanup(branch_name)`
+- [x] repo_path stored internally via `_worktrees` mapping from create()
+- [x] Updated engine.py call site
+
+## H3: WorktreeManager.merge_to_target() signature
+- [x] Changed from `merge_to_target(repo_path, branch, *, target_branch)` to `merge_to_target(branch_name, target_branch="main")`
+- [x] Uses stored repo_path from _worktrees mapping
+- [x] Added git checkout target_branch before merge
+- [x] Updated engine.py call site
+
+## H4: API error response format
+- [x] Added FastAPI exception handler for OrchestratorError
+- [x] Returns spec format: `{"error": {"code": "...", "message": "...", "details": {...}}}`
+- [x] Uses error_code, user_message, http_status from exception hierarchy
+
+## H5: WebSocket message structure
+- [x] Broadcast format changed to `{type, timestamp, payload}` (not raw OrchestratorEvent)
+- [x] payload includes pipeline_id + event.data fields
+
+## M1: AgentWorker heartbeat (10s interval)
+- [x] _run_with_heartbeat() runs executor.run() and heartbeat loop concurrently
+- [x] _heartbeat_loop() emits WORKER_HEARTBEAT every 10s with elapsed_ms, timeout_ms
+- [x] Idle heartbeat emitted during poll waits
+
+## M2: Missing WS events
+- [x] task.submitted — emitted when subtask added to TaskBoard
+- [x] synthesis.started — emitted before Synthesizer.synthesize()
+- [x] synthesis.completed — emitted after synthesis with result_preview
+
+## M3: WS subscribe/unsubscribe
+- [x] handle_client_message() processes subscribe/unsubscribe/ping actions
+- [x] _ClientSubscription filters by pipeline_id and event_types
+- [x] _matches_subscription() checks filters before broadcast
+- [x] subscription.confirmed / subscription.cleared / pong responses
+
+## M4: Missing API endpoints
+- [x] GET /api/board/tasks/{id} — board task detail with pipeline context and events
+- [x] GET /api/artifacts/{task_id} — artifact list from pipeline results
+- [x] GET /api/artifacts/{task_id}/{path} — artifact file download with content-type
+
+## M5: WorktreeManager.list_worktrees()
+- [x] Returns list[dict[str, str]] with branch, path, repo, base_branch
+- [x] Uses internal _worktrees mapping
+
+## M6: serve default host
+- [x] CLI serve default already 0.0.0.0 (verified)
+
+## Phase 7 additional tasks
+- [x] Version bumped to 1.0.0 (pyproject.toml + __init__.py + FastAPI app)
+- [x] ClaudeAdapter: removed --bare, added is_error check, firstParty auth note
+- [x] CLI run: added --wait flag with polling loop
+- [x] Engine: added start()/shutdown() lifecycle methods
+- [x] API: lifespan calls engine.start()/shutdown()
+- [x] README.md updated with full feature list and API reference
+- [x] CONTRIBUTING.md created
+- [x] LICENSE (MIT) created
+- [x] .env.example created
+- [x] .github/workflows/ci.yml created
+
+## Phase 7 v4 Final verification
+- [x] ruff check src/ tests/ -- All checks passed
+- [x] mypy src/ -- Success: no issues found in 52 source files
+- [x] pytest tests/unit/ tests/api/ -q -- 214 passed
+- [x] orchestrator --help -- works
+- [x] grep MCPAgentExecutor src/ -- only in mcp_executor.py stub
+- [x] grep --bare claude.py -- only in comments

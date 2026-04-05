@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import time
 from typing import TYPE_CHECKING, Any
 
 import structlog
@@ -17,11 +19,14 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger()
 
+_HEARTBEAT_INTERVAL_S = 10.0
+
 
 class AgentWorker:
     """특정 레인을 담당하는 워커.
 
     폴링 루프로 TaskBoard에서 태스크를 소비하고 에이전트를 실행한다.
+    실행 중 10초 간격으로 WORKER_HEARTBEAT 이벤트를 발행한다.
     """
 
     def __init__(
@@ -53,6 +58,7 @@ class AgentWorker:
         self._task: asyncio.Task[None] | None = None
         self._tasks_completed = 0
         self._current_task_id: str | None = None
+        self._start_time: float = 0.0
 
     async def start(self) -> None:
         """워커를 시작한다. 백그라운드 폴링 루프를 생성한다.
@@ -64,6 +70,7 @@ class AgentWorker:
             msg = f"Worker {self.worker_id} is already running"
             raise RuntimeError(msg)
         self._running = True
+        self._start_time = time.monotonic()
         self._task = asyncio.create_task(self._run_loop())
         await self.event_bus.emit(
             OrchestratorEvent(
@@ -79,8 +86,6 @@ class AgentWorker:
 
         현재 실행 중인 태스크가 있으면 완료를 기다린다.
         """
-        import contextlib
-
         self._running = False
         if self._task is not None:
             self._task.cancel()
@@ -97,10 +102,15 @@ class AgentWorker:
         logger.info("worker_stopped", worker_id=self.worker_id, lane=self.lane)
 
     async def _run_loop(self) -> None:
-        """워커의 메인 폴링 루프. 태스크를 claim하고 실행한다."""
+        """워커의 메인 폴링 루프. 태스크를 claim하고 실행한다.
+
+        executor.run()과 heartbeat 루프를 동시에 실행한다.
+        """
         while self._running:
             task = await self.board.claim(self.lane, self.worker_id)
             if task is None:
+                # Emit heartbeat while idle (periodic check)
+                await self._emit_heartbeat()
                 await asyncio.sleep(self.poll_interval)
                 continue
 
@@ -119,11 +129,8 @@ class AgentWorker:
             )
 
             try:
-                result = await self.executor.run(
-                    task.description,
-                    timeout=300,
-                    context=None,
-                )
+                # Run executor and heartbeat concurrently
+                result = await self._run_with_heartbeat(task)
                 await self.board.complete(task.id, result.output)
                 self._tasks_completed += 1
                 await self.event_bus.emit(
@@ -168,6 +175,70 @@ class AgentWorker:
                 )
             finally:
                 self._current_task_id = None
+
+    async def _run_with_heartbeat(self, task: Any) -> Any:
+        """Run executor.run() with concurrent heartbeat emission.
+
+        During long-running executor.run() calls, emit WORKER_HEARTBEAT
+        every 10 seconds with elapsed_ms and timeout_ms.
+        """
+        from orchestrator.core.models.schemas import AgentResult
+
+        exec_task = asyncio.create_task(
+            self.executor.run(
+                task.description,
+                timeout=300,
+                context=None,
+            )
+        )
+
+        heartbeat_task = asyncio.create_task(self._heartbeat_loop(task.pipeline_id, task.id))
+
+        try:
+            result: AgentResult = await exec_task
+            return result
+        finally:
+            heartbeat_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await heartbeat_task
+
+    async def _heartbeat_loop(self, pipeline_id: str, task_id: str) -> None:
+        """Emit heartbeat events every 10 seconds."""
+        exec_start = time.monotonic()
+        while True:
+            await asyncio.sleep(_HEARTBEAT_INTERVAL_S)
+            elapsed_ms = int((time.monotonic() - exec_start) * 1000)
+            await self.event_bus.emit(
+                OrchestratorEvent(
+                    type=EventType.WORKER_HEARTBEAT,
+                    task_id=pipeline_id,
+                    node=self.worker_id,
+                    data={
+                        "worker_id": self.worker_id,
+                        "lane": self.lane,
+                        "elapsed_ms": elapsed_ms,
+                        "timeout_ms": 300_000,
+                        "current_task": task_id,
+                    },
+                )
+            )
+
+    async def _emit_heartbeat(self) -> None:
+        """Emit a single heartbeat during idle polling."""
+        elapsed_ms = int((time.monotonic() - self._start_time) * 1000)
+        await self.event_bus.emit(
+            OrchestratorEvent(
+                type=EventType.WORKER_HEARTBEAT,
+                node=self.worker_id,
+                data={
+                    "worker_id": self.worker_id,
+                    "lane": self.lane,
+                    "elapsed_ms": elapsed_ms,
+                    "timeout_ms": 0,
+                    "status": "idle",
+                },
+            )
+        )
 
     def get_status(self) -> dict[str, Any]:
         """워커 상태를 반환한다.

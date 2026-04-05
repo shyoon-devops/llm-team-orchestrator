@@ -6,13 +6,15 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 import structlog
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from orchestrator.api.deps import set_engine
 from orchestrator.api.routes import router
 from orchestrator.api.ws import get_ws_manager, ws_router
 from orchestrator.core.engine import OrchestratorEngine
+from orchestrator.core.errors.exceptions import OrchestratorError
 
 logger = structlog.get_logger()
 
@@ -28,9 +30,32 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     ws_manager = get_ws_manager()
     engine.subscribe(ws_manager.broadcast)
 
+    await engine.start()
     logger.info("engine_started")
     yield
+    await engine.shutdown()
     logger.info("engine_stopped")
+
+
+async def orchestrator_error_handler(
+    request: Request,
+    exc: OrchestratorError,
+) -> JSONResponse:
+    """OrchestratorError 계열 예외를 spec 형식으로 변환한다.
+
+    Spec (api-spec.md §2):
+    {"error": {"code": "CLI_TIMEOUT", "message": "...", "details": {...}}}
+    """
+    return JSONResponse(
+        status_code=exc.http_status,
+        content={
+            "error": {
+                "code": exc.error_code,
+                "message": exc.user_message,
+                "details": exc.details,
+            }
+        },
+    )
 
 
 def create_app() -> FastAPI:
@@ -41,10 +66,13 @@ def create_app() -> FastAPI:
     """
     app = FastAPI(
         title="Agent Team Orchestrator",
-        version="0.1.0",
+        version="1.0.0",
         description="Multi-LLM agent team orchestrator API",
         lifespan=lifespan,
     )
+
+    # Exception handler: OrchestratorError → spec error format
+    app.add_exception_handler(OrchestratorError, orchestrator_error_handler)  # type: ignore[arg-type]
 
     # CORS
     app.add_middleware(
