@@ -13,7 +13,7 @@ function App() {
     <div className="dashboard">
       <header className="dashboard-header">
         <h1>LLM Team Orchestrator</h1>
-        <span className="version">v0.2.0-poc</span>
+        <span className="version">v0.4.0-poc</span>
       </header>
       <div className="dashboard-grid">
         <div className="sidebar">

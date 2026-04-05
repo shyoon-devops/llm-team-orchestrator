@@ -44,3 +44,9 @@ frontend/dist/
 
 # Test target repo (★ PoC 전용 — agent testing sandbox)
 test-target-repo/
+
+# CLI runtime artifacts (codex/gemini leave these behind)
+.codex/
+resume/
+.gemini/
+.worktrees/

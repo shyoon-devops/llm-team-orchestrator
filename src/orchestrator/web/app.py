@@ -157,7 +157,7 @@ def create_app(config_path: str | None = None) -> FastAPI:
 
     app = FastAPI(
         title="LLM Team Orchestrator",
-        version="0.3.0",
+        version="0.4.0",
         lifespan=lifespan,
     )
 
