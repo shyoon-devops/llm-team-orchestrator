@@ -1,5 +1,19 @@
-# MVP 브랜치: 기획/설계 문서만 관리
-# 소스 코드는 구현 시작 시 추가
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.venv/
+dist/
+*.egg-info/
+
+# Testing
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Environment
+.env
 
 # OS
 .DS_Store
@@ -10,3 +24,11 @@ Thumbs.db
 .vscode/
 *.swp
 *~
+
+# Build
+*.egg
+build/
+
+# Data
+data/
+/tmp/
