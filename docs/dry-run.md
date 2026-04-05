@@ -172,6 +172,6 @@ C-CLI-01: Claude CLI 3초 타임아웃 설정 → retry 3회 → codex fallback
 | 12 | worktree merge → cleanup | functions.md §7.2, §7.3 | ✅ |
 
 **발견:**
-- Step 5: target_repo가 유효한 git repo인지 사전 검증이 명세에 없음
-- 해결: engine.submit_task()에서 target_repo가 있으면 git repo 확인, 아니면 에러 반환
+- Step 5: target_repo가 git repo가 아니면 자동 git init (명세 반영됨)
+- 해결: engine.submit_task()에서 target_repo가 git repo가 아니면 자동 git init + 초기 커밋
 
