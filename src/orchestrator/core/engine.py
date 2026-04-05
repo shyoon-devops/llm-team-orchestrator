@@ -42,6 +42,7 @@ from orchestrator.core.worktree.manager import WorktreeManager
 logger = structlog.get_logger()
 
 _ORCHESTRATOR_DIR = str(Path(__file__).resolve().parent.parent.parent.parent)
+_ORCHESTRATOR_PATH = Path(_ORCHESTRATOR_DIR).resolve()
 
 
 class OrchestratorEngine:
@@ -122,6 +123,18 @@ class OrchestratorEngine:
                 await p.wait()
             logger.info("target_repo_initialized", path=path)
 
+    @staticmethod
+    def _is_protected_target_repo(path: str) -> bool:
+        """target_repo가 오케스트레이터 저장소 자신인지 확인한다."""
+        candidate_path = Path(path).expanduser().resolve(strict=False)
+
+        try:
+            return os.path.commonpath(
+                [str(candidate_path), str(_ORCHESTRATOR_PATH)]
+            ) == str(_ORCHESTRATOR_PATH)
+        except ValueError:
+            return False
+
     async def start(self) -> None:
         """엔진을 시작한다. 리소스 초기화."""
         logger.info("engine_starting")
@@ -186,10 +199,8 @@ class OrchestratorEngine:
             msg = "Task description cannot be empty"
             raise ValueError(msg)
 
-        # cwd 자기 보호: 오케스트레이터 디렉토리에서 CLI 실행 방지
-        if target_repo and os.path.realpath(target_repo) == os.path.realpath(
-            _ORCHESTRATOR_DIR
-        ):
+        # cwd 자기 보호: 오케스트레이터 저장소 및 하위 경로에서 CLI 실행 방지
+        if target_repo and self._is_protected_target_repo(target_repo):
             raise ValueError(
                 f"CLI cannot run in orchestrator directory: {target_repo}"
             )
