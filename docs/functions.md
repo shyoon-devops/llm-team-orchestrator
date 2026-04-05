@@ -2206,6 +2206,78 @@ class AllProvidersFailedError(OrchestratorError):
 
 ---
 
+## 11. API 계층
+
+> 모듈: `api/app.py`, `api/deps.py`, `api/routes.py`, `api/ws.py`
+
+### 11.1 `create_app`
+
+```python
+def create_app() -> FastAPI:
+```
+
+**목적:** FastAPI 앱 인스턴스를 생성한다. lifespan 컨텍스트 매니저를 등록한다.
+
+**실행 흐름:**
+```
+1. FastAPI(title="Agent Team Orchestrator", version="1.0.0", lifespan=lifespan) 생성
+2. CORS 미들웨어 추가
+3. 라우터 등록 (routes.py)
+4. WebSocket 엔드포인트 등록 (ws.py)
+5. app 반환
+```
+
+### 11.2 `lifespan` (async context manager)
+
+```python
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+```
+
+**목적:** 서버 시작/종료 시 Engine lifecycle을 관리한다.
+
+**실행 흐름:**
+```
+startup:
+  1. OrchestratorEngine 인스턴스 생성
+  2. await engine.start() 호출
+  3. app.state.engine = engine 저장
+
+shutdown:
+  1. await engine.shutdown() 호출 (워커 정지, 백그라운드 태스크 취소)
+```
+
+**주의:** 이 함수가 engine.start()/shutdown()을 호출하지 않으면 서버 모드에서 워커가 정리되지 않는다.
+
+### 11.3 `get_engine` (deps.py)
+
+```python
+def get_engine(request: Request) -> OrchestratorEngine:
+```
+
+**목적:** FastAPI 의존성 주입. app.state.engine을 반환한다.
+
+### 11.4 라우트 함수
+
+api-spec.md에 정의된 18개 엔드포인트에 대응하는 라우트 함수. 각 함수는 `engine = Depends(get_engine)`으로 Engine을 주입받는다.
+
+상세 요청/응답 스키마는 [api-spec.md](api-spec.md) 참조.
+
+### 11.5 WebSocket 매니저 (ws.py)
+
+```python
+class WebSocketManager:
+    async def connect(self, ws: WebSocket) -> None
+    def disconnect(self, ws: WebSocket) -> None
+    async def broadcast(self, event: OrchestratorEvent) -> None
+```
+
+**목적:** WebSocket 연결 관리 + EventBus 이벤트를 클라이언트에 브로드캐스트.
+
+**통합:** engine.subscribe(ws_manager.broadcast)로 EventBus와 연결.
+
+---
+
 ## 12. CLI (Interface 계층)
 
 > 모듈: `cli.py`
