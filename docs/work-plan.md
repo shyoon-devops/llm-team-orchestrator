@@ -30,7 +30,8 @@
 | **산출물** | `pyproject.toml`, `.python-version`, `src/orchestrator/__init__.py`, `src/orchestrator/__main__.py` |
 | **참고 명세** | [dependencies.md](dependencies.md) — pyproject.toml 전체 내용 복사, [file-structure.md](file-structure.md) — 루트 파일 목록 |
 | **Skills** | `python-conventions` |
-| **검증** | `uv sync --dev` 성공, `uv run python -m orchestrator` 실행 가능 |
+| **검증** | `uv sync --dev` 성공, `uv pip install -e .` 성공, `orchestrator --help` 동작, `uv run orchestrator --help` 동작 |
+| **주의** | `uv sync`만으로는 CLI 진입점 미등록. 반드시 `uv pip install -e .` 필요. 참고: [deployment.md](deployment.md#12-cli-설치-필수) |
 
 ### T1.2 Core 계층 — models + errors
 

@@ -36,7 +36,7 @@ orchestrator run "v2.3.0 카나리 배포 진행" --team deploy-team
 # 오케스트레이터 자동 구성: 팀 지정 없이
 orchestrator run "사용자 인증 시스템 보안 감사"
 
-# 웹 대시보드
+# 웹 대시보드 (프론트엔드 dev 서버, API는 localhost:9000)
 open http://localhost:3000
 ```
 

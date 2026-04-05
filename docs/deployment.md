@@ -47,10 +47,28 @@
    └── /api/health 200 OK 반환 시작
 ```
 
-### 1.2 시작 명령어
+### 1.2 CLI 설치 (필수)
+
+`pyproject.toml`의 `[project.scripts]`에 정의된 `orchestrator` 명령어를 사용하려면 패키지를 editable 설치해야 한다:
 
 ```bash
-# 기본 시작 (개발)
+# 방법 1: uv pip install (권장)
+uv pip install -e .
+
+# 방법 2: uv run으로 실행 (설치 없이)
+uv run orchestrator serve
+
+# 확인
+orchestrator --help   # 방법 1 후
+uv run orchestrator --help  # 방법 2
+```
+
+> **주의:** `uv sync --dev`만으로는 `orchestrator` CLI 진입점이 PATH에 등록되지 않는다. 반드시 `uv pip install -e .` 또는 `uv run` 접두어를 사용해야 한다.
+
+### 1.3 시작 명령어
+
+```bash
+# 기본 시작 (개발) — 기본 포트: 9000
 orchestrator serve
 
 # 포트 지정
