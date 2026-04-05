@@ -1,0 +1,151 @@
+[project]
+name = "agent-team-orchestrator"
+version = "0.1.0"
+description = "Multi-LLM agent team orchestrator: coordinate Claude Code, Codex CLI, and Gemini CLI as a collaborative team"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.12"
+authors = [{ name = "yoon" }]
+
+dependencies = [
+    # === 오케스트레이션 ===
+    "langgraph>=0.6.0,<1.0.0",           # StateGraph, 조건부 엣지, 체크포인터
+    "langchain-core>=0.3.0,<1.0.0",      # LangGraph 의존성 (BaseMessage 등)
+
+    # === 모델 추상화 ===
+    "litellm>=1.60.0,<2.0.0",            # 100+ 프로바이더, Router 로드밸런싱
+
+    # === 데이터 검증 ===
+    "pydantic>=2.10.0,<3.0.0",           # 입출력 스키마 런타임 검증
+    "pydantic-settings>=2.7.0,<3.0.0",   # 환경변수 기반 설정 로딩
+
+    # === API 서버 ===
+    "fastapi>=0.115.0,<1.0.0",           # REST + WebSocket API
+    "uvicorn[standard]>=0.32.0",         # ASGI 서버
+
+    # === CLI 인터페이스 ===
+    "typer>=0.15.0,<1.0.0",              # CLI 앱 프레임워크
+    "rich>=13.9.0",                       # 터미널 출력 포맷팅
+    "httpx>=0.27.0",                      # 비동기 HTTP 클라이언트
+
+    # === 유틸리티 ===
+    "structlog>=24.4.0",                  # 구조화된 로깅
+    "tenacity>=9.0.0",                    # 범용 재시도 데코레이터
+    "aiofiles>=24.1.0",                   # 비동기 파일 I/O (아티팩트 스토어)
+    "pyyaml>=6.0.0",                      # YAML 프리셋 파일 파싱
+]
+
+[project.optional-dependencies]
+dev = [
+    # === 테스트 ===
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",             # async 테스트 지원
+    "pytest-cov>=6.0.0",                  # 커버리지
+    "pytest-timeout>=2.3.0",              # 테스트 타임아웃
+    "pytest-mock>=3.14.0",                # mocker fixture
+
+    # === 코드 품질 ===
+    "ruff>=0.8.0",                        # linter + formatter (black/isort 대체)
+    "mypy>=1.13.0",                       # 정적 타입 검사
+    "pre-commit>=4.0.0",                  # pre-commit 훅
+
+    # === 개발 도구 ===
+    "ipython>=8.30.0",                    # 대화형 디버깅
+    "coverage>=7.6.0",                    # 커버리지 분석
+]
+
+[project.scripts]
+orchestrator = "orchestrator.cli:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/orchestrator"]
+
+# === Ruff (linter + formatter) ===
+[tool.ruff]
+target-version = "py312"
+line-length = 99
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W",       # pycodestyle
+    "F",             # pyflakes
+    "I",             # isort
+    "N",             # pep8-naming
+    "UP",            # pyupgrade
+    "ASYNC",         # flake8-async
+    "B",             # flake8-bugbear
+    "SIM",           # flake8-simplify
+    "RUF",           # Ruff-specific
+]
+ignore = [
+    "S101",   # assert 허용 (테스트에서 사용)
+    "S603",   # subprocess 호출 허용
+    "S607",   # partial executable path 허용
+    "B008",   # Depends() in FastAPI 허용
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["orchestrator"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = [
+    "S101",
+    "ARG",
+    "S106",
+]
+"src/orchestrator/cli.py" = [
+    "T20",
+]
+
+# === Pytest ===
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+markers = [
+    "integration: 실 CLI 호출이 필요한 통합 테스트 (deselect by default)",
+    "integration_claude: Claude CLI 통합 테스트",
+    "integration_codex: Codex CLI 통합 테스트",
+    "integration_gemini: Gemini CLI 통합 테스트",
+    "slow: 실행 시간이 긴 테스트",
+    "e2e: 전체 파이프라인 E2E 테스트",
+]
+addopts = "-m 'not integration and not e2e' --timeout=30"
+
+# === MyPy ===
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = ["pydantic.mypy"]
+mypy_path = "src"
+namespace_packages = true
+explicit_package_bases = true
+
+[[tool.mypy.overrides]]
+module = ["langgraph.*", "litellm.*", "aiofiles.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
+disallow_untyped_calls = false
+
+# === Coverage ===
+[tool.coverage.run]
+source = ["src/orchestrator"]
+omit = ["*/tests/*", "*/__main__.py"]
+
+[tool.coverage.report]
+fail_under = 75
+show_missing = true
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "@abstractmethod",
+]
