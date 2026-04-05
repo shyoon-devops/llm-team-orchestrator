@@ -12,7 +12,12 @@ from orchestrator.models.schemas import AgentResult
 
 
 class ClaudeAdapter(CLIAdapter):
-    """Adapter for Claude Code CLI (headless mode)."""
+    """Adapter for Claude Code CLI (headless mode).
+
+    Supports two auth modes:
+    - firstParty (claude.ai login): no API key env needed
+    - API key: set config.api_key to a real Anthropic API key
+    """
 
     @property
     def provider_name(self) -> str:
@@ -21,15 +26,18 @@ class ClaudeAdapter(CLIAdapter):
     async def run(self, prompt: str, *, timeout: int = 300) -> AgentResult:
         cmd = [
             "claude",
-            "--bare",
             "-p",
             prompt,
             "--output-format",
             "json",
             "--max-turns",
             "20",
+            "--permission-mode",
+            "bypassPermissions",
         ]
-        env = {**os.environ, "ANTHROPIC_API_KEY": self.config.api_key}
+        env = dict(os.environ)
+        if self.config.api_key and self.config.api_key != "firstparty":
+            env["ANTHROPIC_API_KEY"] = self.config.api_key
 
         proc = await asyncio.create_subprocess_exec(
             *cmd,
@@ -52,16 +60,22 @@ class ClaudeAdapter(CLIAdapter):
 
         try:
             data = json.loads(stdout.decode())
-            return AgentResult(
-                output=data.get("result", ""),
-                exit_code=proc.returncode,
-                duration_ms=data.get("duration_ms", 0),
-                tokens_used=data.get("usage", {}).get("input_tokens", 0)
-                + data.get("usage", {}).get("output_tokens", 0),
-                raw=data,
-            )
         except json.JSONDecodeError as e:
             raise CLIParseError(f"Failed to parse Claude output: {e}") from e
+
+        if data.get("is_error", False):
+            raise CLIExecutionError(
+                f"Claude CLI returned error: {data.get('result', 'unknown')[:500]}"
+            )
+
+        usage = data.get("usage", {})
+        return AgentResult(
+            output=data.get("result", ""),
+            exit_code=proc.returncode or 0,
+            duration_ms=data.get("duration_ms", 0),
+            tokens_used=usage.get("input_tokens", 0) + usage.get("output_tokens", 0),
+            raw=data,
+        )
 
     async def health_check(self) -> bool:
         try:

@@ -9,26 +9,23 @@ orchestrator:
     host: localhost
 
 agents:
-  architect:
+  planner:
     cli: claude
     role: "소프트웨어 아키텍트"
-    model: "claude-sonnet-4-20250514"
-    timeout: 300
+    timeout: 120
   implementer:
     cli: codex
     role: "백엔드 구현 개발자"
-    model: "o4-mini"
     timeout: 300
   reviewer:
     cli: gemini
     role: "코드 리뷰어"
-    model: "gemini-2.5-pro"
-    timeout: 300
+    timeout: 120
 
 tasks:
   design:
     description: "태스크에 대한 구현 계획을 설계합니다"
-    agent: architect
+    agent: planner
     priority: 1
   implement:
     description: "설계를 기반으로 코드를 구현합니다"

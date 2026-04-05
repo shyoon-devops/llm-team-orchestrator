@@ -47,11 +47,7 @@ def create_router(state: AppState) -> APIRouter:
 
     @router.get("/agents")
     async def list_agents() -> list[dict[str, str]]:
-        return [
-            {"id": "planner", "provider": "mock", "status": "idle"},
-            {"id": "implementer", "provider": "mock", "status": "idle"},
-            {"id": "reviewer", "provider": "mock", "status": "idle"},
-        ]
+        return state.agent_tracker.get_all()
 
     @router.get("/artifacts")
     async def list_artifacts() -> list[str]:

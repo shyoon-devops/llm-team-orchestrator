@@ -27,7 +27,9 @@ class GeminiAdapter(CLIAdapter):
             "stream-json",
             "--yolo",
         ]
-        env = {**os.environ, "GEMINI_API_KEY": self.config.api_key}
+        env = dict(os.environ)
+        if self.config.api_key:
+            env["GEMINI_API_KEY"] = self.config.api_key
 
         proc = await asyncio.create_subprocess_exec(
             *cmd,

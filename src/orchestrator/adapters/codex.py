@@ -28,7 +28,9 @@ class CodexAdapter(CLIAdapter):
             "--full-auto",
             prompt,
         ]
-        env = {**os.environ, "CODEX_API_KEY": self.config.api_key}
+        env = dict(os.environ)
+        if self.config.api_key:
+            env["OPENAI_API_KEY"] = self.config.api_key
 
         proc = await asyncio.create_subprocess_exec(
             *cmd,
