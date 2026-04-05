@@ -283,3 +283,17 @@ C-CLI-01: Claude CLI 3초 타임아웃 설정 → retry 3회 → codex fallback
 
 **교차 검증:**
 - functions.md §10.3 codex 명령 ↔ 구현 CodexAdapter._build_command | ✅ (--ephemeral 제거됨)
+
+---
+
+## 시나리오 11: v2 iter5 — 구체적 파일 생성 지시
+
+| Step | 검증 |
+|------|------|
+| architect 프리셋에 "파일 목록 포함" constraint | ✅ |
+| architect 결과: "src/add.py, tests/test_add.py 생성 필요" | ✅ |
+| implementer 프롬프트에 architect 결과 + cwd + "실제 파일 생성" 지시 | ✅ |
+| codex가 cwd에서 src/add.py 파일 직접 생성 | ✅ |
+| worktree commit → merge → my-project에 파일 | ✅ |
+
+**교차 검증:** v2-spec §4.5 prompt + §9 file instruction + §P1.5 commit/merge — 일관 ✅

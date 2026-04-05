@@ -317,3 +317,39 @@ After:  codex exec --json --full-auto "{prompt}"
 ### 주의
 
 `--ephemeral` 없이 실행하면 codex가 현재 디렉토리의 파일을 직접 수정할 수 있다. 따라서 **반드시 cwd=worktree_path**로 실행해야 한다 (P1 cwd 격리와 연동).
+
+---
+
+## 9. P6: 프롬프트에 구체적 파일 생성 지시
+
+### 문제
+
+CLI(codex/claude)에 "add 함수를 작성해"라고만 보내면 **stdout으로 코드를 출력**하지 **파일을 생성하지 않음.** 빈 프로젝트 디렉토리에서는 더더욱 아무것도 만들지 않음.
+
+### 해결
+
+worker._build_prompt()에서 **구체적 파일 생성 지시**를 프롬프트에 주입:
+
+```python
+# worker._build_prompt() 추가:
+if cwd:
+    prompt += (
+        f"\n\n작업 디렉토리: {cwd}\n"
+        f"반드시 이 디렉토리에 실제 파일을 생성하세요.\n"
+        f"예시: src/main.py, tests/test_main.py 등\n"
+        f"stdout으로 코드를 출력하지 말고 파일로 저장하세요.\n"
+        f"파일을 생성한 뒤 어떤 파일을 만들었는지 알려주세요."
+    )
+```
+
+### architect에게 파일 구조 결정 위임
+
+architect의 설계 결과에 **파일 구조 목록**이 포함되도록 프리셋 수정:
+
+```yaml
+# presets/agents/architect.yaml constraints 추가:
+- "설계 결과에 반드시 생성할 파일 목록과 각 파일의 역할을 포함한다"
+- "예: src/add.py — add 함수 구현, tests/test_add.py — 단위 테스트"
+```
+
+이러면 implementer가 architect 결과(컨텍스트 체이닝)에서 파일 목록을 보고 해당 파일을 생성할 수 있음.
