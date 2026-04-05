@@ -87,7 +87,7 @@ async def submit_task(
 **Pre-conditions:**
 - `task`는 비어있지 않은 문자열이어야 한다.
 - `team_preset`이 지정된 경우, `PresetRegistry`에 존재해야 한다.
-- `target_repo`가 지정된 경우, 유효한 **git 저장소** 경로여야 한다 (`.git/` 존재 확인). git repo가 아니면 `ValueError` 발생.
+- `target_repo`가 지정된 경우, 유효한 디렉토리여야 한다. git 저장소가 아니면 자동으로 `git init` + 초기 커밋을 수행한다.
 
 **Post-conditions:**
 - `Pipeline`이 `_pipelines`에 저장된다.
