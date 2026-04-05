@@ -470,6 +470,39 @@ AgentWorker가 종료되었을 때 발생한다.
 | `tasks_failed` | `int` | 실패한 태스크 수 |
 | `uptime_ms` | `int` | 가동 시간 (밀리초) |
 
+#### `worker.heartbeat`
+
+워커가 태스크 실행 중일 때 **10초 간격**으로 발행한다. UI에서 "살아있는지" + "경과 시간"을 표시하는 데 사용.
+
+```json
+{
+  "type": "worker.heartbeat",
+  "timestamp": "2026-04-05T14:31:30.000Z",
+  "payload": {
+    "worker_id": "architect-worker-1",
+    "lane": "architect",
+    "task_id": "sub-48a809b3",
+    "state": "executing",
+    "elapsed_ms": 45000,
+    "timeout_ms": 120000
+  }
+}
+```
+
+| Payload 필드 | 타입 | 설명 |
+|-------------|------|------|
+| `worker_id` | `str` | Worker 인스턴스 ID |
+| `lane` | `str` | 담당 레인 |
+| `task_id` | `str` | 현재 실행 중인 태스크 ID |
+| `state` | `str` | `"executing"` (CLI 호출 중), `"idle"` (대기 중) |
+| `elapsed_ms` | `int` | 현재 태스크 시작 이후 경과 시간 (밀리초) |
+| `timeout_ms` | `int` | 프리셋 기준 타임아웃 (밀리초). UI에서 프로그레스 바 계산에 사용 |
+
+**프론트엔드 활용:**
+- `state=executing` + `elapsed_ms` → "BUSY (45s / 120s)" 표시
+- `elapsed_ms / timeout_ms` → 프로그레스 바 퍼센트
+- heartbeat가 10초 이상 오지 않으면 → "UNRESPONSIVE" 표시
+
 ---
 
 ### 3.4 Agent Health 이벤트

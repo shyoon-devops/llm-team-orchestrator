@@ -1009,15 +1009,23 @@ while _running:
        a. AGENT_EXECUTING 이벤트 발행
        b. logger.info("task_executing", worker_id=..., task_id=..., lane=..., title=...)
        c. diff_collector.snapshot() (있으면)
-       d. executor.run(task.description, timeout=task에서 결정)
-          - 진행 로그: logger.info("cli_executing", worker_id=..., cli=..., prompt_length=...)
-       d. diff_collector.collect_changes() (있으면)
-       e. 성공 시: board.complete(task_id, result)
+       d. executor.run()과 heartbeat를 동시 실행:
+          - asyncio.create_task(executor.run(...)) → 실행 태스크
+          - 10초 간격 heartbeat 루프 시작:
+            while 실행 태스크 미완료:
+              WORKER_HEARTBEAT 이벤트 발행 {
+                worker_id, lane, task_id, state="executing",
+                elapsed_ms=(현재-시작)*1000,
+                timeout_ms=preset.limits.timeout*1000
+              }
+              await asyncio.sleep(10)
+          - 실행 태스크 완료 대기 (await)
+       e. diff_collector.collect_changes() (있으면)
+       f. 성공 시: board.complete(task_id, result)
           - TASK_COMPLETED 이벤트 발행
-       f. 실패 시: board.fail(task_id, error)
+       g. 실패 시: board.fail(task_id, error)
           - TASK_FAILED / TASK_RETRYING 이벤트 발행
-       g. _tasks_completed 증가
-    4. WORKER_HEARTBEAT 이벤트 발행 (주기적)
+       h. _tasks_completed 증가
 ```
 
 **Side effects:**

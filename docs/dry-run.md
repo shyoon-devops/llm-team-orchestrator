@@ -92,3 +92,31 @@
 | 2 | SPEC.md/functions.md에 Engine start/shutdown 없음 | §13 lifecycle 추가 |
 | 3 | ClaudeAdapter --bare 사용 | functions.md에 "사용 금지" 명시 (이전 수정) |
 | 4 | CLI wait 패턴 미정의 | functions.md §12.1에 실행 흐름 상세 정의 |
+
+---
+
+## 시나리오 4: 웹 대시보드에서 태스크 실행 중 진행 상황 확인
+
+```
+사용자: 웹 대시보드에서 feature-team으로 태스크 제출 → architect BUSY 상태에서 "살아있는지" 확인
+```
+
+| Step | 동작 | 참조 문서 | 검증 |
+|------|------|----------|------|
+| 1 | Submit Task 클릭 → POST /api/tasks | api-spec.md §2.1 | ✅ |
+| 2 | Pipeline RUNNING 표시 | websocket-protocol.md pipeline.running | ✅ |
+| 3 | TASK BOARD: architect IN_PROGRESS | websocket-protocol.md task.claimed | ✅ |
+| 4 | AGENTS: architect BUSY | websocket-protocol.md worker.started | ✅ |
+| 5 | **10초 후: heartbeat 수신** | websocket-protocol.md worker.heartbeat | ✅ |
+| 6 | **UI: "BUSY (45s / 120s)" 표시** | websocket-protocol.md §프론트엔드 활용 | ✅ |
+| 7 | **프로그레스 바: elapsed/timeout** | websocket-protocol.md worker.heartbeat payload | ✅ |
+| 8 | **10초 이상 heartbeat 없음 → UNRESPONSIVE** | websocket-protocol.md §프론트엔드 활용 | ✅ |
+| 9 | architect 완료 → implementer 승격 | websocket-protocol.md task.completed | ✅ |
+| 10 | 최종 완료 → synthesis report | websocket-protocol.md pipeline.completed | ✅ |
+
+**결과: heartbeat 흐름이 명세에 정의됨** ✅
+
+**교차 검증:**
+- websocket-protocol.md `worker.heartbeat` → functions.md §3.4 `_run_loop` heartbeat 발행 로직 | ✅ 일치
+- websocket-protocol.md `elapsed_ms/timeout_ms` → data-models.md AgentLimits.timeout | ✅ 일치
+- websocket-protocol.md 프론트엔드 활용 → 프론트엔드 구현 시 참조 | ✅ 정의됨
