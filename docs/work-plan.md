@@ -276,6 +276,8 @@
 ### T7.2 최종 검증
 
 | 산출물 | 최종 `CHECKLIST.md` — 전체 명세 대비 완전 검증 |
+| **필수 수동 검증** | `uv pip install -e .` 후 `orchestrator serve` → `orchestrator run "hello" --team-preset feature-team` 실제 실행 확인 |
+| **주의** | Claude CLI `--bare` 플래그 사용 금지 (firstParty 인증 충돌). 참고: [functions.md](functions.md) ClaudeAdapter Known issues |
 
 ### T7.3 v1.0.0 릴리스
 

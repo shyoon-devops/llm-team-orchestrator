@@ -1007,8 +1007,10 @@ while _running:
     2. 태스크가 없으면 poll_interval만큼 대기 후 재시도
     3. 태스크 획득 시:
        a. AGENT_EXECUTING 이벤트 발행
-       b. diff_collector.snapshot() (있으면)
-       c. executor.run(task.description, timeout=task에서 결정)
+       b. logger.info("task_executing", worker_id=..., task_id=..., lane=..., title=...)
+       c. diff_collector.snapshot() (있으면)
+       d. executor.run(task.description, timeout=task에서 결정)
+          - 진행 로그: logger.info("cli_executing", worker_id=..., cli=..., prompt_length=...)
        d. diff_collector.collect_changes() (있으면)
        e. 성공 시: board.complete(task_id, result)
           - TASK_COMPLETED 이벤트 발행
@@ -1976,10 +1978,17 @@ class ClaudeAdapter(CLIAdapter):
     """Claude Code CLI 어댑터.
 
     headless 명령:
-        claude --bare -p "{prompt}" --output-format json --permission-mode bypassPermissions
+        claude -p "{prompt}" --output-format json --permission-mode bypassPermissions
 
-    Known issue:
-        stdin >7,000 chars → empty output. 긴 프롬프트는 temp file 사용.
+    Known issues:
+        - stdin >7,000 chars → empty output. 긴 프롬프트는 temp file 사용
+        - `--bare` 플래그 사용 금지 — firstParty 인증(claude.ai)과 충돌하여 "Not logged in" 에러 발생
+        - `is_error` 필드: exit_code=0이지만 `is_error=true`일 수 있음 → 반드시 체크
+        - ANTHROPIC_API_KEY가 없으면 firstParty 인증 사용 (환경변수 미설정)
+
+    인증 모드:
+        - firstParty (기본): ANTHROPIC_API_KEY 미설정 시 claude.ai 로그인 인증 사용
+        - API key: ANTHROPIC_API_KEY 설정 시 해당 키 사용
     """
 
     @property
@@ -1996,17 +2005,22 @@ class ClaudeAdapter(CLIAdapter):
         실행 흐름:
             1. 프롬프트 길이 확인 (>7000 chars → temp file로 전환)
             2. subprocess 명령어 구성:
-               - claude --bare -p "{prompt}" --output-format json
+               - claude -p "{prompt}" --output-format json
                  --permission-mode bypassPermissions
                - model 지정 시: --model {model}
-            3. 환경 변수 설정: ANTHROPIC_API_KEY
-            4. working_dir에서 subprocess 실행 (asyncio.create_subprocess_exec)
-            5. stdout JSON 파싱
-            6. AgentResult 생성:
-               - output: JSON의 text/content 필드
+               - system_prompt 지정 시: --system-prompt "{persona}"
+               - `--bare` 플래그 절대 사용하지 않음
+            3. 환경 변수 설정: ANTHROPIC_API_KEY (있는 경우만)
+               - 없으면 firstParty 인증 (claude.ai 로그인) 자동 사용
+            4. stdin=DEVNULL (stdin 파이프 금지)
+            5. working_dir에서 subprocess 실행 (asyncio.create_subprocess_exec)
+            6. stdout JSON 파싱
+            7. `is_error` 필드 체크: true이면 CLIExecutionError 발생
+            8. AgentResult 생성:
+               - output: JSON의 `result` 필드
                - exit_code: subprocess return code
-               - duration_ms: 실행 시간 측정
-               - tokens_used: JSON의 usage 필드 (있으면)
+               - duration_ms: JSON의 `duration_ms` 필드
+               - tokens_used: JSON의 `usage.input_tokens + usage.output_tokens`
                - raw: 전체 JSON 응답
 
         Raises:
@@ -2137,7 +2151,7 @@ class GeminiAdapter(CLIAdapter):
 
 | CLI | Headless 명령 | 환경 변수 | 출력 형식 |
 |-----|--------------|-----------|-----------|
-| Claude Code | `claude --bare -p "{prompt}" --output-format json --permission-mode bypassPermissions` | `ANTHROPIC_API_KEY` | JSON (단일 객체) |
+| Claude Code | `claude -p "{prompt}" --output-format json --permission-mode bypassPermissions` | `ANTHROPIC_API_KEY` (없으면 firstParty 인증 사용) | JSON (단일 객체) |
 | Codex CLI | `codex exec --json --ephemeral --full-auto "{prompt}"` | `OPENAI_API_KEY` | NDJSON (이벤트 스트림) |
 | Gemini CLI | `gemini -p "{prompt}" --output-format stream-json --yolo` | `GOOGLE_API_KEY` / `GEMINI_API_KEY` | Stream-JSON (이벤트 스트림, `result`만 필터) |
 
