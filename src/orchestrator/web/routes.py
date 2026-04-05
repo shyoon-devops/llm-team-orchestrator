@@ -68,4 +68,31 @@ def create_router(state: AppState) -> APIRouter:
     async def get_events() -> list[dict[str, Any]]:
         return [e.model_dump() for e in state.event_bus.history]
 
+    # ── Board endpoints (★ PoC 전용) ─────────────────────────────
+
+    @router.get("/board")
+    async def get_board_state() -> dict[str, Any]:
+        """Get kanban board state grouped by column."""
+        if hasattr(state, "task_board") and state.task_board:
+            result: dict[str, Any] = state.task_board.get_board_state()
+            return result
+        return {}
+
+    @router.get("/board/lanes")
+    async def get_lanes() -> list[str]:
+        """List available lanes."""
+        if hasattr(state, "task_board") and state.task_board:
+            return list(state.task_board._lanes.keys())
+        return []
+
+    @router.get("/board/tasks/{task_id}")
+    async def get_board_task(task_id: str) -> dict[str, Any]:
+        """Get a specific task from the board."""
+        if hasattr(state, "task_board") and state.task_board:
+            task = state.task_board.get_task(task_id)
+            if task:
+                dump: dict[str, Any] = task.model_dump()
+                return dump
+        return {"error": "not found"}
+
     return router
