@@ -16,7 +16,8 @@ logger = structlog.get_logger()
 class CodexAdapter(CLIAdapter):
     """Codex CLI 어댑터.
 
-    ``codex exec --json --ephemeral --full-auto "prompt"`` 형태로 실행한다.
+    ``codex exec --json --full-auto "prompt"`` 형태로 실행한다.
+    --ephemeral 사용 금지: worktree cwd에서 직접 파일 생성해야 함.
     JSONL 출력을 파싱하여 item.completed 또는 turn.completed 이벤트를 찾는다.
     """
 
@@ -37,7 +38,6 @@ class CodexAdapter(CLIAdapter):
             self.cli_name,
             "exec",
             "--json",
-            "--ephemeral",
             "--full-auto",
         ]
         if config.model:
