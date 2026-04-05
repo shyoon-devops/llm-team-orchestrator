@@ -36,7 +36,9 @@ class CodexAdapter(CLIAdapter):
             env["OPENAI_API_KEY"] = api_key
         return env
 
-    async def run(self, prompt: str, *, timeout: int = 300) -> AgentResult:
+    async def run(
+        self, prompt: str, *, timeout: int = 300, cwd: str | None = None
+    ) -> AgentResult:
         cmd = [
             "codex",
             "exec",
@@ -52,6 +54,7 @@ class CodexAdapter(CLIAdapter):
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             env=env,
+            cwd=cwd,
         )
         try:
             stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)

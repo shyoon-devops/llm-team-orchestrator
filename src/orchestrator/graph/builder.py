@@ -53,17 +53,21 @@ def build_graph(
     artifact_store: ArtifactStore,
     event_bus: EventBus | None = None,
     task_id: str = "",
+    cwd: str | None = None,
 ) -> CompiledStateGraph:  # type: ignore[type-arg]
     """Build the plan → implement → review orchestration graph."""
     graph = StateGraph(OrchestratorState)
 
-    graph.add_node("plan", create_plan_node(planner, artifact_store, event_bus, task_id=task_id))
     graph.add_node(
-        "implement",
-        create_implement_node(implementer, artifact_store, event_bus, task_id=task_id),
+        "plan", create_plan_node(planner, artifact_store, event_bus, task_id=task_id, cwd=cwd)
     )
     graph.add_node(
-        "review", create_review_node(reviewer, artifact_store, event_bus, task_id=task_id)
+        "implement",
+        create_implement_node(implementer, artifact_store, event_bus, task_id=task_id, cwd=cwd),
+    )
+    graph.add_node(
+        "review",
+        create_review_node(reviewer, artifact_store, event_bus, task_id=task_id, cwd=cwd),
     )
 
     graph.set_entry_point("plan")

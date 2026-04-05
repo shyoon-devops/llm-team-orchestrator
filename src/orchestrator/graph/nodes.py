@@ -28,6 +28,7 @@ def create_plan_node(
     artifact_store: ArtifactStore,
     event_bus: EventBus | None = None,
     task_id: str = "",
+    cwd: str | None = None,
 ) -> Any:
     """Create a plan node that generates a task plan."""
 
@@ -51,7 +52,7 @@ def create_plan_node(
         )
 
         try:
-            result = await adapter.run(prompt, timeout=adapter.config.timeout)
+            result = await adapter.run(prompt, timeout=adapter.config.timeout, cwd=cwd)
             artifact_path = artifact_store.save(
                 "plan.md",
                 result.output,
@@ -99,6 +100,7 @@ def create_implement_node(
     artifact_store: ArtifactStore,
     event_bus: EventBus | None = None,
     task_id: str = "",
+    cwd: str | None = None,
 ) -> Any:
     """Create an implement node that generates code based on the plan."""
 
@@ -123,7 +125,7 @@ Plan:
 Write clean, well-tested code. Include type annotations."""
 
         try:
-            result = await adapter.run(prompt, timeout=adapter.config.timeout)
+            result = await adapter.run(prompt, timeout=adapter.config.timeout, cwd=cwd)
             artifact_path = artifact_store.save(
                 "implementation.md",
                 result.output,
@@ -172,6 +174,7 @@ def create_review_node(
     artifact_store: ArtifactStore,
     event_bus: EventBus | None = None,
     task_id: str = "",
+    cwd: str | None = None,
 ) -> Any:
     """Create a review node that reviews the implementation."""
 
@@ -202,7 +205,7 @@ Provide:
 3. Overall verdict (approve/request_changes)"""
 
         try:
-            result = await adapter.run(prompt, timeout=adapter.config.timeout)
+            result = await adapter.run(prompt, timeout=adapter.config.timeout, cwd=cwd)
             artifact_path = artifact_store.save(
                 "review.md",
                 result.output,

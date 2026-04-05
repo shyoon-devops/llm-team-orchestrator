@@ -14,8 +14,16 @@ class CLIAdapter(ABC):
         self.config = config
 
     @abstractmethod
-    async def run(self, prompt: str, *, timeout: int = 300) -> AgentResult:
-        """Send a prompt to the CLI tool and return the result."""
+    async def run(
+        self, prompt: str, *, timeout: int = 300, cwd: str | None = None
+    ) -> AgentResult:
+        """Send a prompt to the CLI tool and return the result.
+
+        Args:
+            prompt: The prompt to send.
+            timeout: Timeout in seconds.
+            cwd: Working directory for the CLI subprocess.
+        """
         ...
 
     @abstractmethod

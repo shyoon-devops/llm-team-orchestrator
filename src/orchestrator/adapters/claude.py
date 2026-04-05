@@ -23,7 +23,9 @@ class ClaudeAdapter(CLIAdapter):
     def provider_name(self) -> str:
         return "anthropic"
 
-    async def run(self, prompt: str, *, timeout: int = 300) -> AgentResult:
+    async def run(
+        self, prompt: str, *, timeout: int = 300, cwd: str | None = None
+    ) -> AgentResult:
         cmd = [
             "claude",
             "-p",
@@ -45,6 +47,7 @@ class ClaudeAdapter(CLIAdapter):
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             env=env,
+            cwd=cwd,
         )
         try:
             stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)

@@ -15,6 +15,7 @@ if TYPE_CHECKING:
 
 class TaskSubmission(BaseModel):
     task: str
+    target_repo: str | None = None
 
 
 class TaskResponse(BaseModel):
@@ -30,7 +31,9 @@ def create_router(state: AppState) -> APIRouter:
     @router.post("/tasks", response_model=TaskResponse)
     async def submit_task(submission: TaskSubmission) -> dict[str, str]:
         task_id = str(uuid.uuid4())[:8]
-        bg_task = asyncio.create_task(state.run_pipeline(task_id, submission.task))
+        bg_task = asyncio.create_task(
+            state.run_pipeline(task_id, submission.task, target_repo=submission.target_repo)
+        )
         state._tasks[task_id] = bg_task
         return {"task_id": task_id, "task": submission.task, "status": "running"}
 

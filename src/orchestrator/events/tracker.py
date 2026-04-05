@@ -86,8 +86,12 @@ class AgentTracker:
         task_id = event.task_id
         role = _NODE_ROLE_MAP.get(event.node, event.node)
 
+        # Look up in task-specific agents first, fall back to default
         agents = self._tasks.get(task_id, {})
         agent = agents.get(role)
+        if agent is None and task_id != self._DEFAULT_TASK:
+            agents = self._tasks.get(self._DEFAULT_TASK, {})
+            agent = agents.get(role)
         if agent is None:
             return
 

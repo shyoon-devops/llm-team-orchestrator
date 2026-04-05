@@ -33,7 +33,9 @@ class MockCLIAdapter(CLIAdapter):
     def provider_name(self) -> str:
         return "mock"
 
-    async def run(self, prompt: str, *, timeout: int = 300) -> AgentResult:
+    async def run(
+        self, prompt: str, *, timeout: int = 300, cwd: str | None = None
+    ) -> AgentResult:
         self.call_log.append(prompt)
 
         # Simulate latency
@@ -69,7 +71,9 @@ class FailingMockAdapter(CLIAdapter):
     def provider_name(self) -> str:
         return "mock-failing"
 
-    async def run(self, prompt: str, *, timeout: int = 300) -> AgentResult:
+    async def run(
+        self, prompt: str, *, timeout: int = 300, cwd: str | None = None
+    ) -> AgentResult:
         raise CLIExecutionError(self.error_message)
 
     async def health_check(self) -> bool:

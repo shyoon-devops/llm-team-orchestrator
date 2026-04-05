@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import tempfile
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
@@ -81,23 +82,51 @@ class AppState:
             self._adapters["reviewer"],
         )
 
-    async def run_pipeline(self, task_id: str, task: str) -> None:
-        """Run a pipeline in background."""
+    async def run_pipeline(
+        self, task_id: str, task: str, *, target_repo: str | None = None
+    ) -> None:
+        """Run a pipeline in background.
+
+        Args:
+            task_id: Unique identifier for this pipeline run.
+            task: The task description.
+            target_repo: Git repo path where CLI agents should work.
+                         When set, a worktree is created per-pipeline.
+        """
         self.agent_tracker.reset_all()
 
         await self.event_bus.publish(
-            OrchestratorEvent(type=EventType.PIPELINE_STARTED, data={"task_id": task_id})
+            OrchestratorEvent(
+                type=EventType.PIPELINE_STARTED,
+                task_id=task_id,
+                data={"task_id": task_id},
+            )
         )
 
         self.pipelines[task_id] = PipelineStatus(
             task_id=task_id, task=task, status=TaskStatus.RUNNING
         )
 
+        # Worktree isolation: create a worktree for this pipeline
+        worktree_path: str | None = None
+        worktree_mgr = None
+        if target_repo:
+            from orchestrator.worktree.manager import WorktreeManager
+
+            worktree_mgr = WorktreeManager(target_repo)
+            worktree_path = await worktree_mgr.create(task_id, "pipeline")
+
         try:
             planner, implementer, reviewer = await self._get_adapters()
 
             graph = build_graph(
-                planner, implementer, reviewer, self.artifact_store, self.event_bus
+                planner,
+                implementer,
+                reviewer,
+                self.artifact_store,
+                self.event_bus,
+                task_id=task_id,
+                cwd=worktree_path,
             )
 
             result = await graph.ainvoke(
@@ -115,6 +144,22 @@ class AppState:
                 }
             )
 
+            # Collect file changes from worktree
+            if worktree_path:
+                from orchestrator.worktree.collector import FileDiffCollector
+
+                after = FileDiffCollector.snapshot(worktree_path)
+                # Empty before = everything is "created"
+                changes = FileDiffCollector.diff({}, after)
+                if changes:
+                    contents = FileDiffCollector.collect_changes(worktree_path, changes)
+                    for filepath, content in contents.items():
+                        self.artifact_store.save(
+                            f"files/{filepath}",
+                            content,
+                            task_id=task_id,
+                        )
+
             status = self.pipelines[task_id]
             status.status = (
                 TaskStatus.COMPLETED if result["status"] == "reviewed" else TaskStatus.FAILED
@@ -128,6 +173,7 @@ class AppState:
                     type=EventType.PIPELINE_COMPLETED
                     if status.status == TaskStatus.COMPLETED
                     else EventType.PIPELINE_FAILED,
+                    task_id=task_id,
                     data={"task_id": task_id, "status": status.status.value},
                 )
             )
@@ -139,9 +185,15 @@ class AppState:
             await self.event_bus.publish(
                 OrchestratorEvent(
                     type=EventType.PIPELINE_FAILED,
+                    task_id=task_id,
                     data={"task_id": task_id, "error": str(e)},
                 )
             )
+        finally:
+            # Cleanup worktree (best-effort)
+            if worktree_mgr and worktree_path:
+                with contextlib.suppress(Exception):
+                    await worktree_mgr.cleanup(task_id, "pipeline")
 
 
 @asynccontextmanager
