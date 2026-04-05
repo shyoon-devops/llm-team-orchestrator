@@ -42,8 +42,4 @@ class EnvAuthProvider(AuthProvider):
         return key
 
     def available_providers(self) -> list[str]:
-        return [
-            provider
-            for provider, env_var in self.KEY_MAP.items()
-            if os.environ.get(env_var)
-        ]
+        return [provider for provider, env_var in self.KEY_MAP.items() if os.environ.get(env_var)]

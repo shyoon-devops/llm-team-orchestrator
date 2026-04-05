@@ -8,10 +8,12 @@ from typing import TYPE_CHECKING, Any
 import structlog
 
 from orchestrator.errors.exceptions import CLIError
+from orchestrator.events.types import EventType, OrchestratorEvent
 
 if TYPE_CHECKING:
     from orchestrator.adapters.base import CLIAdapter
     from orchestrator.context.artifact_store import ArtifactStore
+    from orchestrator.events.bus import EventBus
     from orchestrator.graph.state import OrchestratorState
 
 logger = structlog.get_logger()
@@ -24,12 +26,15 @@ def _make_message(role: str, content: str) -> dict[str, object]:
 def create_plan_node(
     adapter: CLIAdapter,
     artifact_store: ArtifactStore,
+    event_bus: EventBus | None = None,
 ) -> Any:
     """Create a plan node that generates a task plan."""
 
     async def plan_node(state: OrchestratorState) -> dict[str, Any]:
         log = logger.bind(node="plan", task=state["task"][:80])
         log.info("planning_started")
+        if event_bus:
+            await event_bus.publish(OrchestratorEvent(type=EventType.NODE_STARTED, node="plan"))
 
         prompt = (
             "You are a software architect. "
@@ -50,6 +55,14 @@ def create_plan_node(
                 metadata={"provider": adapter.provider_name, "tokens": result.tokens_used},
             )
             log.info("planning_completed", tokens=result.tokens_used)
+            if event_bus:
+                await event_bus.publish(
+                    OrchestratorEvent(
+                        type=EventType.NODE_COMPLETED,
+                        node="plan",
+                        data={"tokens": result.tokens_used},
+                    )
+                )
             return {
                 "plan_summary": result.output[:500],
                 "plan_artifact": str(artifact_path),
@@ -58,6 +71,12 @@ def create_plan_node(
             }
         except CLIError as e:
             log.error("planning_failed", error=str(e))
+            if event_bus:
+                await event_bus.publish(
+                    OrchestratorEvent(
+                        type=EventType.NODE_FAILED, node="plan", data={"error": str(e)}
+                    )
+                )
             return {
                 "status": "plan_failed",
                 "error": str(e),
@@ -71,12 +90,17 @@ def create_plan_node(
 def create_implement_node(
     adapter: CLIAdapter,
     artifact_store: ArtifactStore,
+    event_bus: EventBus | None = None,
 ) -> Any:
     """Create an implement node that generates code based on the plan."""
 
     async def implement_node(state: OrchestratorState) -> dict[str, Any]:
         log = logger.bind(node="implement", task=state["task"][:80])
         log.info("implementation_started")
+        if event_bus:
+            await event_bus.publish(
+                OrchestratorEvent(type=EventType.NODE_STARTED, node="implement")
+            )
 
         plan = state.get("plan_summary", "")
         prompt = f"""You are a software engineer. Implement the following plan.
@@ -96,6 +120,14 @@ Write clean, well-tested code. Include type annotations."""
                 metadata={"provider": adapter.provider_name, "tokens": result.tokens_used},
             )
             log.info("implementation_completed", tokens=result.tokens_used)
+            if event_bus:
+                await event_bus.publish(
+                    OrchestratorEvent(
+                        type=EventType.NODE_COMPLETED,
+                        node="implement",
+                        data={"tokens": result.tokens_used},
+                    )
+                )
             return {
                 "code_artifact": str(artifact_path),
                 "status": "implemented",
@@ -105,6 +137,12 @@ Write clean, well-tested code. Include type annotations."""
             }
         except CLIError as e:
             log.error("implementation_failed", error=str(e))
+            if event_bus:
+                await event_bus.publish(
+                    OrchestratorEvent(
+                        type=EventType.NODE_FAILED, node="implement", data={"error": str(e)}
+                    )
+                )
             return {
                 "status": "implement_failed",
                 "error": str(e),
@@ -118,12 +156,15 @@ Write clean, well-tested code. Include type annotations."""
 def create_review_node(
     adapter: CLIAdapter,
     artifact_store: ArtifactStore,
+    event_bus: EventBus | None = None,
 ) -> Any:
     """Create a review node that reviews the implementation."""
 
     async def review_node(state: OrchestratorState) -> dict[str, Any]:
         log = logger.bind(node="review", task=state["task"][:80])
         log.info("review_started")
+        if event_bus:
+            await event_bus.publish(OrchestratorEvent(type=EventType.NODE_STARTED, node="review"))
 
         # Load implementation if available
         impl_content = ""
@@ -151,6 +192,14 @@ Provide:
                 metadata={"provider": adapter.provider_name, "tokens": result.tokens_used},
             )
             log.info("review_completed", tokens=result.tokens_used)
+            if event_bus:
+                await event_bus.publish(
+                    OrchestratorEvent(
+                        type=EventType.NODE_COMPLETED,
+                        node="review",
+                        data={"tokens": result.tokens_used},
+                    )
+                )
             return {
                 "review_summary": result.output[:500],
                 "review_artifact": str(artifact_path),
@@ -159,6 +208,12 @@ Provide:
             }
         except CLIError as e:
             log.error("review_failed", error=str(e))
+            if event_bus:
+                await event_bus.publish(
+                    OrchestratorEvent(
+                        type=EventType.NODE_FAILED, node="review", data={"error": str(e)}
+                    )
+                )
             return {
                 "status": "review_failed",
                 "error": str(e),

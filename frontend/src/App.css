@@ -1,0 +1,265 @@
+/* ★ PoC 전용 — Dashboard styles */
+:root {
+  --bg: #1a1a2e;
+  --surface: #16213e;
+  --card: #0f3460;
+  --accent: #e94560;
+  --text: #eee;
+  --text2: #aab;
+  --border: #333;
+  --link: #64b5f6;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.6;
+}
+
+.dashboard {
+  min-height: 100vh;
+}
+
+.dashboard-header {
+  background: linear-gradient(135deg, var(--surface), var(--card));
+  padding: 16px 24px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-bottom: 3px solid var(--accent);
+}
+
+.dashboard-header h1 {
+  font-size: 1.2em;
+}
+
+.version {
+  color: var(--text2);
+  font-size: 0.8em;
+  background: var(--bg);
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  gap: 16px;
+  padding: 16px;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+@media (max-width: 768px) {
+  .dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.main {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.panel h2 {
+  color: var(--accent);
+  font-size: 1em;
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Agent cards */
+.agent-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  background: var(--bg);
+  border-radius: 6px;
+  margin-bottom: 6px;
+}
+
+.status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.agent-name {
+  font-weight: 600;
+  flex: 1;
+}
+
+.agent-provider {
+  color: var(--text2);
+  font-size: 0.8em;
+}
+
+.agent-status {
+  color: var(--link);
+  font-size: 0.8em;
+  text-transform: uppercase;
+}
+
+/* Task form */
+.task-input {
+  width: 100%;
+  padding: 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 0.9em;
+  margin-bottom: 8px;
+}
+
+.task-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.submit-btn {
+  width: 100%;
+  padding: 10px;
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.9em;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.submit-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.submit-btn:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.submitted-info {
+  margin-top: 8px;
+  padding: 8px;
+  background: var(--bg);
+  border-radius: 4px;
+  font-size: 0.85em;
+  color: var(--link);
+}
+
+.submitted-info code {
+  color: var(--accent);
+}
+
+/* Events */
+.ws-status {
+  font-size: 0.7em;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: normal;
+}
+
+.ws-status.connected {
+  background: #1b5e20;
+  color: #4caf50;
+}
+
+.ws-status.disconnected {
+  background: #b71c1c;
+  color: #ef9a9a;
+}
+
+.event-list {
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.event-item {
+  display: flex;
+  gap: 8px;
+  padding: 4px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  font-size: 0.85em;
+}
+
+.event-type {
+  font-weight: 600;
+  min-width: 120px;
+}
+
+.event-node {
+  color: var(--link);
+}
+
+.event-time {
+  color: var(--text2);
+  margin-left: auto;
+}
+
+.empty {
+  color: var(--text2);
+  font-style: italic;
+  text-align: center;
+  padding: 20px;
+}
+
+/* Artifacts */
+.artifact-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.artifact-btn {
+  background: var(--card);
+  color: var(--link);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 10px;
+  font-size: 0.8em;
+  cursor: pointer;
+}
+
+.artifact-btn.active {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
+
+.artifact-content {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px;
+  font-size: 0.82em;
+  max-height: 300px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}

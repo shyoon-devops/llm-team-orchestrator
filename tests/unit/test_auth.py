@@ -1,6 +1,5 @@
 """Unit tests for auth provider."""
 
-
 import pytest
 
 from orchestrator.auth.provider import EnvAuthProvider

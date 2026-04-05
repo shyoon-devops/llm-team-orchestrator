@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 
     from orchestrator.adapters.base import CLIAdapter
     from orchestrator.context.artifact_store import ArtifactStore
+    from orchestrator.events.bus import EventBus
 
 
 MAX_RETRIES = 3
@@ -50,13 +51,14 @@ def build_graph(
     implementer: CLIAdapter,
     reviewer: CLIAdapter,
     artifact_store: ArtifactStore,
+    event_bus: EventBus | None = None,
 ) -> CompiledStateGraph:  # type: ignore[type-arg]
     """Build the plan → implement → review orchestration graph."""
     graph = StateGraph(OrchestratorState)
 
-    graph.add_node("plan", create_plan_node(planner, artifact_store))
-    graph.add_node("implement", create_implement_node(implementer, artifact_store))
-    graph.add_node("review", create_review_node(reviewer, artifact_store))
+    graph.add_node("plan", create_plan_node(planner, artifact_store, event_bus))
+    graph.add_node("implement", create_implement_node(implementer, artifact_store, event_bus))
+    graph.add_node("review", create_review_node(reviewer, artifact_store, event_bus))
 
     graph.set_entry_point("plan")
 

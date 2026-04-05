@@ -39,3 +39,5 @@ Thumbs.db
 
 # Artifacts (PoC runtime)
 /artifacts/
+frontend/node_modules/
+frontend/dist/
