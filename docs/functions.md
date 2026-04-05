@@ -2203,3 +2203,95 @@ class AllProvidersFailedError(OrchestratorError):
     """모든 CLI 프로바이더가 실패."""
     errors: dict[str, str]  # cli_name → error_message
 ```
+
+---
+
+## 12. CLI (Interface 계층)
+
+> 모듈: `cli.py`
+> 아키텍처 원칙: CLI는 Engine을 직접 사용한다 (서버 없이 단독 실행 가능).
+> 서버 모드 시에는 `orchestrator serve`로 API 서버를 띄우고 웹/외부 클라이언트가 API를 호출한다.
+
+### 12.1 `run`
+
+```python
+def run(
+    task: str,                                          # 태스크 설명 (필수)
+    repo: str | None = None,                            # --repo, -r: 대상 Git 저장소
+    team_preset: str | None = None,                     # --team-preset, -t: 팀 프리셋
+    timeout: int = 600,                                 # --timeout: 전체 타임아웃(초)
+    wait: bool = True,                                  # --wait/--no-wait: 완료 대기
+) -> None:
+```
+
+**목적:** 태스크를 실행하고 완료까지 대기한다.
+
+**실행 흐름:**
+
+```
+1. OrchestratorEngine 생성 + start()
+2. engine.submit_task(task, team_preset, target_repo) 호출
+3. --wait=True (기본):
+   a. engine.get_pipeline(task_id) 폴링 (0.5초 간격)
+   b. 상태 변경 시 터미널 출력 (PENDING→PLANNING→RUNNING→SYNTHESIZING→COMPLETED)
+   c. 터미널 상태 도달 시 결과 출력 + 종료
+   d. timeout 초과 시 engine.cancel_task() + 종료
+4. --wait=False:
+   a. Pipeline ID만 출력하고 즉시 반환
+5. finally: engine.shutdown() (워커 정리, 백그라운드 태스크 취소)
+```
+
+**주의:**
+- `asyncio.run()` 안에서 실행됨
+- submit_task가 background `asyncio.create_task`로 파이프라인을 실행함
+- wait 폴링 루프가 이벤트 루프를 유지하여 background task가 실행될 수 있도록 함
+- shutdown()이 호출되지 않으면 subprocess 좀비 프로세스 발생
+
+### 12.2 `serve`
+
+```python
+def serve(
+    host: str = "0.0.0.0",                             # --host
+    port: int = 9000,                                   # --port (기본: 9000)
+    reload: bool = False,                               # --reload
+) -> None:
+```
+
+**목적:** API 서버를 실행한다. `uvicorn.run()` 호출.
+
+---
+
+## 13. OrchestratorEngine Lifecycle
+
+> Engine은 `start()`/`shutdown()` lifecycle 메서드를 가진다.
+
+### 13.1 `start`
+
+```python
+async def start(self) -> None:
+```
+
+**목적:** 엔진을 시작한다. 현재는 로그만 출력하지만, 향후 체크포인트 복원 등 초기화 로직 배치.
+
+**Side effects:**
+- `logger.info("engine_started")` 출력
+
+### 13.2 `shutdown`
+
+```python
+async def shutdown(self) -> None:
+```
+
+**목적:** 모든 워커를 정지하고 백그라운드 태스크를 취소한다.
+
+**실행 흐름:**
+
+```
+1. self._workers의 모든 워커에 대해 worker.stop() 호출
+2. self._bg_tasks의 모든 태스크에 대해 task.cancel() 호출
+3. _workers, _bg_tasks 딕셔너리 초기화
+4. logger.info("engine_shutdown") 출력
+```
+
+**Pre-conditions:** 없음 (시작하지 않은 상태에서 호출해도 안전).
+**Post-conditions:** 모든 워커 정지, 모든 백그라운드 태스크 취소.

@@ -205,6 +205,10 @@ class Synthesizer:
 class OrchestratorEngine:
     """Core 계층 단일 진입점. API 계층은 이것만 의존."""
 
+    # Lifecycle
+    async def start(self) -> None
+    async def shutdown(self) -> None
+
     # 태스크
     async def submit_task(self, task, *, team_preset=None, target_repo=None) -> Pipeline
     async def get_pipeline(self, task_id) -> Pipeline | None
