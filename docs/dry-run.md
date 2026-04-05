@@ -147,3 +147,31 @@ C-CLI-01: Claude CLI 3초 타임아웃 설정 → retry 3회 → codex fallback
 - chaos-engineering.md C-CLI-01 기대 흐름 ↔ errors.md retry+fallback 정의 | ✅ 일치
 
 **발견:** `fallback.triggered` 이벤트가 websocket-protocol.md 이벤트 요약 테이블에 있는지 확인 필요.
+
+---
+
+## 시나리오 6: 웹에서 feature-team으로 태스크 제출 (target_repo 포함)
+
+```
+사용자: Submit Task → "웹 3d 물리엔진 플레이그라운드 만들어줘" / feature-team / /home/yoon/repository/my-project
+```
+
+| Step | 동작 | 참조 문서 | 검증 |
+|------|------|----------|------|
+| 1 | POST /api/tasks {task, team_preset, target_repo} | api-spec.md | ✅ |
+| 2 | engine.submit_task() → Pipeline 생성 | functions.md §1.2 | ✅ |
+| 3 | TeamPlanner.plan_team(task, team_preset) | functions.md §5.2 | ✅ |
+| 4 | **SubTask.description = 프리셋설명 + "\n\n사용자 태스크: 웹 3d..."** | functions.md §5.2 step 3 | ✅ (수정됨) |
+| 5 | target_repo가 git repo인지 확인 | **미정의** | ⚠️ target_repo가 git init 안 되어 있으면? |
+| 6 | WorktreeManager.create(target_repo, branch) | functions.md §7.1 | ✅ |
+| 7 | worktree 경로 → executor context cwd | functions.md §1.15 step 2 | ✅ (수정됨) |
+| 8 | AgentWorker → executor.run(description, cwd=worktree) | functions.md §3.4 | ✅ |
+| 9 | Claude CLI 실행: claude -p "아키텍처 설계...\n\n사용자 태스크: 웹 3d..." --cwd=worktree | functions.md §10.2 | ✅ |
+| 10 | 완료 → board.complete → depends_on 승격 | functions.md §2.3 | ✅ |
+| 11 | 모든 subtask 완료 → Synthesizer | functions.md §7.1 | ✅ |
+| 12 | worktree merge → cleanup | functions.md §7.2, §7.3 | ✅ |
+
+**발견:**
+- Step 5: target_repo가 유효한 git repo인지 사전 검증이 명세에 없음
+- 해결: engine.submit_task()에서 target_repo가 있으면 git repo 확인, 아니면 에러 반환
+
