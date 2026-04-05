@@ -520,11 +520,14 @@ async def _execute_pipeline(
 2. PLANNING → RUNNING
    - SubTask[] → TaskItem[]로 변환
    - TaskBoard.submit()으로 칸반 보드에 투입
-   - target_repo가 있으면 WorktreeManager.create()
+   - target_repo가 있으면:
+     a. WorktreeManager.create(branch_name)로 worktree 생성
+     b. worktree 경로를 CLIAgentExecutor의 context={"cwd": worktree_path}로 전달
+     c. AgentWorker 생성 시 executor에 cwd 설정
    - 필요한 AgentWorker 시작
 
 3. RUNNING (대기)
-   - AgentWorker가 TaskItem을 소비
+   - AgentWorker가 TaskItem을 소비 (cwd=worktree에서 CLI 실행)
    - 완료/실패 이벤트 감시
    - 부분 실패 처리
 
@@ -1347,9 +1350,11 @@ async def plan_team(
 team_preset이 있는 경우:
     1. TeamPreset.tasks를 순회
     2. 각 TeamTaskDef → SubTask로 변환
-    3. depends_on 매핑 (태스크 이름 → SubTask ID)
-    4. assigned_preset = TeamTaskDef.agent (키 이름)
-    5. assigned_cli = AgentPreset.preferred_cli
+    3. **SubTask.description = f"{task_def.description}\n\n사용자 태스크: {task}"**
+       (프리셋 설명 + 사용자 원본 태스크를 합쳐서 CLI에 전달)
+    4. depends_on 매핑 (태스크 이름 → SubTask ID)
+    5. assigned_preset = TeamTaskDef.agent (키 이름)
+    6. assigned_cli = AgentPreset.preferred_cli
 
 team_preset이 없는 경우 (자동 구성):
     1. 사용 가능한 AgentPreset 목록을 컨텍스트로 제공
