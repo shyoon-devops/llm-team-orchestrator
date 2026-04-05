@@ -75,6 +75,7 @@ file-structure.md의 모든 소스 파일이 functions.md에 대응 함수를 �
 | api/routes.py | §11.4 | ✅ |
 | api/ws.py | §11.5 | ✅ |
 | cli.py | §12 | ✅ |
+| tests/chaos/* | chaos-engineering.md (22 시나리오) | ✅ |
 
 ## 3. api-spec.md → functions.md 매핑
 

@@ -120,3 +120,30 @@
 - websocket-protocol.md `worker.heartbeat` → functions.md §3.4 `_run_loop` heartbeat 발행 로직 | ✅ 일치
 - websocket-protocol.md `elapsed_ms/timeout_ms` → data-models.md AgentLimits.timeout | ✅ 일치
 - websocket-protocol.md 프론트엔드 활용 → 프론트엔드 구현 시 참조 | ✅ 정의됨
+
+---
+
+## 시나리오 5: 카오스 — CLI 타임아웃 → retry → fallback
+
+```
+C-CLI-01: Claude CLI 3초 타임아웃 설정 → retry 3회 → codex fallback
+```
+
+| Step | 동작 | 참조 문서 | 검증 |
+|------|------|----------|------|
+| 1 | 태스크 제출 → architect(claude) 실행 | functions.md §1.2 | ✅ |
+| 2 | claude CLI 3초 타임아웃 → CLITimeoutError | errors.md CLITimeoutError | ✅ |
+| 3 | RetryPolicy: 1s 대기 → 재시도 | errors.md §retry | ✅ |
+| 4 | 재시도 2/3 실패 → 2s 대기 | errors.md §retry (exponential) | ✅ |
+| 5 | 재시도 3/3 실패 → max_retries 도달 | errors.md §retry | ✅ |
+| 6 | FallbackChain: claude → codex 전환 | errors.md §fallback | ✅ |
+| 7 | fallback.triggered 이벤트 | websocket-protocol.md | ✅ (이벤트 정의 확인 필요) |
+| 8 | codex CLI 실행 → 성공 | functions.md §10.3 | ✅ |
+| 9 | task.completed | websocket-protocol.md | ✅ |
+| 10 | 나머지 subtask 진행 | functions.md §2.3 depends_on | ✅ |
+
+**교차 검증:**
+- errors.md fallback 이벤트 ↔ websocket-protocol.md 이벤트 타입 | ✅ 추가 완료 (worker.heartbeat + fallback.triggered)
+- chaos-engineering.md C-CLI-01 기대 흐름 ↔ errors.md retry+fallback 정의 | ✅ 일치
+
+**발견:** `fallback.triggered` 이벤트가 websocket-protocol.md 이벤트 요약 테이블에 있는지 확인 필요.

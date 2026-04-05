@@ -649,6 +649,8 @@ WebSocket 연결 성공 시 서버가 전송한다 (섹션 1.3 참조).
 | `task.retried` | S→C | 태스크 재시도 |
 | `worker.started` | S→C | Worker 시작 |
 | `worker.stopped` | S→C | Worker 종료 |
+| `worker.heartbeat` | S→C | Worker 실행 중 진행 상황 (10초 간격) |
+| `fallback.triggered` | S→C | CLI 폴백 발생 (from→to) |
 | `agent.health_check` | S→C | 에이전트 상태 변경 |
 | `synthesis.started` | S→C | Synthesizer 시작 |
 | `synthesis.completed` | S→C | Synthesizer 완료 |
