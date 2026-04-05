@@ -214,8 +214,10 @@ class AgentWorker:
         if cwd:
             prompt += (
                 f"\n\n작업 디렉토리: {cwd}\n"
-                f"이 디렉토리에서 직접 파일을 생성/수정하세요. "
-                f"stdout으로 코드를 출력하지 마세요."
+                f"반드시 이 디렉토리에 실제 파일을 생성하세요.\n"
+                f"예시: src/main.py, tests/test_main.py 등\n"
+                f"stdout으로 코드를 출력하지 말고 파일로 저장하세요.\n"
+                f"파일을 생성한 뒤 어떤 파일을 만들었는지 알려주세요."
             )
 
         return prompt
