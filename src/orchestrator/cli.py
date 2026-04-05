@@ -81,6 +81,30 @@ def cancel(
     asyncio.run(_cancel())
 
 
+@app.command()
+def resume(
+    task_id: str = typer.Argument(..., help="재개할 파이프라인 ID"),
+) -> None:
+    """중단된 태스크를 재개한다."""
+
+    async def _resume() -> None:
+        from orchestrator.core.engine import OrchestratorEngine
+
+        engine = OrchestratorEngine()
+        try:
+            pipeline = await engine.resume_task(task_id)
+            console.print(f"[green]Pipeline resumed:[/green] {pipeline.task_id}")
+            console.print(f"[blue]Status:[/blue] {pipeline.status}")
+        except KeyError:
+            console.print(f"[red]Pipeline not found:[/red] {task_id}")
+            raise typer.Exit(code=1) from None
+        except ValueError as e:
+            console.print(f"[red]Cannot resume:[/red] {e}")
+            raise typer.Exit(code=1) from None
+
+    asyncio.run(_resume())
+
+
 @presets_app.command("list")
 def presets_list() -> None:
     """모든 프리셋 목록을 조회한다."""

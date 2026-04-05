@@ -7,13 +7,18 @@ from httpx import ASGITransport, AsyncClient
 
 from orchestrator.api.app import create_app
 from orchestrator.api.deps import set_engine
+from orchestrator.core.config.schema import OrchestratorConfig
 from orchestrator.core.engine import OrchestratorEngine
 
 
 @pytest.fixture
-async def engine():
+async def engine(tmp_path):
     """테스트용 OrchestratorEngine 인스턴스."""
-    return OrchestratorEngine()
+    config = OrchestratorConfig(
+        checkpoint_enabled=True,
+        checkpoint_db_path=str(tmp_path / "test_checkpoints.sqlite"),
+    )
+    return OrchestratorEngine(config=config)
 
 
 @pytest.fixture

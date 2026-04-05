@@ -12,6 +12,7 @@ import structlog
 from orchestrator.core.adapters.factory import AdapterFactory
 from orchestrator.core.auth.provider import EnvAuthProvider
 from orchestrator.core.config.schema import OrchestratorConfig
+from orchestrator.core.context.checkpoint import CheckpointStore
 from orchestrator.core.errors.fallback import FallbackChain
 from orchestrator.core.events.bus import EventBus
 from orchestrator.core.events.synthesizer import Synthesizer
@@ -29,7 +30,7 @@ from orchestrator.core.planner.team_planner import TeamPlanner
 from orchestrator.core.presets.models import AgentPreset, TeamPreset
 from orchestrator.core.presets.registry import PresetRegistry
 from orchestrator.core.queue.board import TaskBoard
-from orchestrator.core.queue.models import TaskItem
+from orchestrator.core.queue.models import TaskItem, TaskState
 from orchestrator.core.queue.worker import AgentWorker
 from orchestrator.core.utils import generate_id
 from orchestrator.core.worktree.collector import FileDiffCollector
@@ -71,6 +72,9 @@ class OrchestratorEngine:
             model=self.config.planner_model,
             preset_registry=self._preset_registry,
         )
+        self._checkpoint_store: CheckpointStore | None = None
+        if self.config.checkpoint_enabled:
+            self._checkpoint_store = CheckpointStore(self.config.checkpoint_db_path)
         self._pipelines: dict[str, Pipeline] = {}
         self._workers: dict[str, AgentWorker] = {}
         self._bg_tasks: dict[str, asyncio.Task[None]] = {}
@@ -79,6 +83,20 @@ class OrchestratorEngine:
     def event_bus(self) -> EventBus:
         """이벤트 버스를 반환한다."""
         return self._event_bus
+
+    @property
+    def checkpoint_store(self) -> CheckpointStore | None:
+        """체크포인트 저장소를 반환한다."""
+        return self._checkpoint_store
+
+    def _save_checkpoint(self, pipeline: Pipeline) -> None:
+        """파이프라인 상태를 체크포인트에 저장한다.
+
+        Args:
+            pipeline: 저장할 파이프라인.
+        """
+        if self._checkpoint_store is not None:
+            self._checkpoint_store.save(pipeline.task_id, pipeline)
 
     async def submit_task(
         self,
@@ -189,7 +207,12 @@ class OrchestratorEngine:
         return True
 
     async def resume_task(self, task_id: str) -> Pipeline:
-        """중단된 파이프라인을 재개한다.
+        """중단된 파이프라인을 재개한다 (체크포인트 기반).
+
+        1. 메모리에서 파이프라인을 찾고, 없으면 체크포인트에서 복원.
+        2. 실패/부분 실패 상태인지 확인.
+        3. TaskBoard의 failed 태스크를 todo로 리셋.
+        4. 파이프라인 상태를 RUNNING으로 전이.
 
         Args:
             task_id: 재개할 파이프라인 ID.
@@ -202,6 +225,13 @@ class OrchestratorEngine:
             ValueError: 재개할 수 없는 상태인 경우.
         """
         pipeline = self._pipelines.get(task_id)
+
+        # 메모리에 없으면 체크포인트에서 복원 시도
+        if pipeline is None and self._checkpoint_store is not None:
+            pipeline = self._checkpoint_store.load(task_id)
+            if pipeline is not None:
+                self._pipelines[task_id] = pipeline
+
         if pipeline is None:
             msg = f"Pipeline not found: {task_id}"
             raise KeyError(msg)
@@ -211,7 +241,31 @@ class OrchestratorEngine:
             msg = f"Pipeline {task_id} cannot be resumed from status: {pipeline.status}"
             raise ValueError(msg)
 
-        self._pipelines[task_id] = pipeline.model_copy(update={"status": PipelineStatus.RUNNING})
+        # TaskBoard의 failed 태스크를 todo로 리셋
+        for task_item in self._board._tasks.values():
+            if task_item.pipeline_id == task_id and task_item.state == TaskState.FAILED:
+                self._board._tasks[task_item.id] = task_item.model_copy(
+                    update={
+                        "state": TaskState.TODO,
+                        "error": "",
+                        "assigned_to": None,
+                    }
+                )
+
+        self._pipelines[task_id] = pipeline.model_copy(
+            update={"status": PipelineStatus.RUNNING, "error": ""}
+        )
+        self._save_checkpoint(self._pipelines[task_id])
+
+        await self._event_bus.emit(
+            OrchestratorEvent(
+                type=EventType.PIPELINE_RUNNING,
+                task_id=task_id,
+                node="orchestrator",
+                data={"resumed": True},
+            )
+        )
+
         logger.info("pipeline_resumed", task_id=task_id)
         return self._pipelines[task_id]
 
@@ -386,6 +440,7 @@ class OrchestratorEngine:
                     "started_at": datetime.utcnow(),
                 }
             )
+            self._save_checkpoint(self._pipelines[task_id])
             await self._event_bus.emit(
                 OrchestratorEvent(
                     type=EventType.PIPELINE_PLANNING,
@@ -410,6 +465,7 @@ class OrchestratorEngine:
             self._pipelines[task_id] = self._pipelines[task_id].model_copy(
                 update={"subtasks": subtasks}
             )
+            self._save_checkpoint(self._pipelines[task_id])
 
             await self._event_bus.emit(
                 OrchestratorEvent(
@@ -424,6 +480,7 @@ class OrchestratorEngine:
             self._pipelines[task_id] = self._pipelines[task_id].model_copy(
                 update={"status": PipelineStatus.RUNNING}
             )
+            self._save_checkpoint(self._pipelines[task_id])
             await self._event_bus.emit(
                 OrchestratorEvent(
                     type=EventType.PIPELINE_RUNNING,
@@ -512,6 +569,7 @@ class OrchestratorEngine:
             self._pipelines[task_id] = self._pipelines[task_id].model_copy(
                 update={"status": PipelineStatus.SYNTHESIZING}
             )
+            self._save_checkpoint(self._pipelines[task_id])
             await self._event_bus.emit(
                 OrchestratorEvent(
                     type=EventType.PIPELINE_SYNTHESIZING,
@@ -577,6 +635,7 @@ class OrchestratorEngine:
                         "completed_at": datetime.utcnow(),
                     }
                 )
+                self._save_checkpoint(self._pipelines[task_id])
                 await self._event_bus.emit(
                     OrchestratorEvent(
                         type=EventType.PIPELINE_FAILED,
@@ -601,6 +660,7 @@ class OrchestratorEngine:
                         "completed_at": datetime.utcnow(),
                     }
                 )
+                self._save_checkpoint(self._pipelines[task_id])
                 await self._event_bus.emit(
                     OrchestratorEvent(
                         type=EventType.PIPELINE_FAILED,
@@ -662,6 +722,7 @@ class OrchestratorEngine:
                     "completed_at": datetime.utcnow(),
                 }
             )
+            self._save_checkpoint(self._pipelines[task_id])
             event_type = EventType.PIPELINE_COMPLETED
             await self._event_bus.emit(
                 OrchestratorEvent(
@@ -686,6 +747,7 @@ class OrchestratorEngine:
                     "completed_at": datetime.utcnow(),
                 }
             )
+            self._save_checkpoint(self._pipelines[task_id])
             await self._event_bus.emit(
                 OrchestratorEvent(
                     type=EventType.PIPELINE_FAILED,

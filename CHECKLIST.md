@@ -242,3 +242,94 @@
 - [x] ruff format --check src/ tests/ -- 90 files already formatted
 - [x] mypy src/ -- Success: no issues found in 51 source files
 - [x] pytest tests/unit/ tests/api/ -v -- 197 passed (170 Phase 1-3 + 27 Phase 4)
+
+---
+
+# Phase 5 Implementation Checklist (Branch A -- Checkpointing + React Dashboard)
+
+## T5.1 Checkpointing
+- [x] core/context/checkpoint.py -- CheckpointStore class
+  - SQLite-backed storage via standard sqlite3 module
+  - save(pipeline_id, pipeline) -- upsert with ON CONFLICT
+  - load(pipeline_id) -> Pipeline | None -- deserialize from JSON
+  - list_checkpoints() -> list[str] -- ordered by updated_at DESC
+  - delete(pipeline_id) -- remove checkpoint
+  - Auto-creates DB file and parent directories
+- [x] Engine integration: checkpoint saves at every state transition
+  - PENDING -> PLANNING (with started_at)
+  - After subtask decomposition (subtasks recorded)
+  - PLANNING -> RUNNING
+  - RUNNING -> SYNTHESIZING
+  - COMPLETED / PARTIAL_FAILURE / FAILED (final states)
+  - Exception handler (FAILED with error)
+- [x] Config: checkpoint_enabled + checkpoint_db_path in OrchestratorConfig (already existed)
+
+## T5.2 Resume
+- [x] engine.resume_task(task_id) upgraded with checkpoint-based restore
+  - Loads from checkpoint if not in memory (server restart scenario)
+  - Validates resumable status (FAILED, PARTIAL_FAILURE only)
+  - Resets failed TaskBoard tasks to TODO state
+  - Clears pipeline error, sets status to RUNNING
+  - Saves updated checkpoint
+  - Emits PIPELINE_RUNNING event with resumed=True flag
+- [x] API endpoint: POST /api/tasks/{id}/resume (already existed in routes.py)
+- [x] CLI command: orchestrator resume <task-id>
+  - Added to cli.py with KeyError/ValueError handling
+  - Prints pipeline_id and status on success
+
+## T5.3 React Dashboard
+- [x] frontend/ project scaffolding
+  - Vite + React 19 + TypeScript
+  - package.json with vitest, @testing-library/react
+  - vite.config.ts with API/WS proxy to localhost:8000
+  - tsconfig.json (strict mode, ES2020)
+  - Dark theme CSS (index.css with CSS variables)
+- [x] Types (src/types.ts)
+  - Pipeline, SubTask, WorkerResult, FileChange, TaskItem, AgentStatus, WSEvent, BoardState
+- [x] Hooks
+  - useWebSocket: exponential backoff reconnection, rolling event buffer (max 200)
+  - useApi: usePipelines, useBoard, useAgents (auto-refresh), submitTask, resumeTask, cancelTask
+- [x] Components
+  - KanbanBoard: 5-column layout (backlog/todo/in_progress/done/failed), flattens all lanes
+  - PipelineList: table view with status badges, Resume/Cancel action buttons
+  - AgentStatusPanel: worker list with lane and status badges
+  - TaskSubmitForm: task description + optional team_preset + target_repo
+  - EventLog: real-time WebSocket events, newest first, Clear button
+  - ResultViewer: synthesis report viewer + subtask results, Close button
+- [x] App.tsx: root layout with header (connection status), grid layout
+
+## T5.4 Tests
+- [x] Backend tests
+  - tests/unit/core/context/test_checkpoint.py -- 8 tests
+    - test_checkpoint_save_load
+    - test_checkpoint_load_nonexistent
+    - test_checkpoint_overwrite
+    - test_list_checkpoints
+    - test_delete_checkpoint
+    - test_delete_nonexistent
+    - test_checkpoint_db_directory_creation
+    - test_checkpoint_preserves_pipeline_fields
+  - tests/unit/test_resume.py -- 8 tests
+    - test_resume_from_checkpoint
+    - test_resume_nonexistent
+    - test_resume_already_completed
+    - test_resume_running_pipeline
+    - test_resume_partial_failure
+    - test_resume_emits_event
+    - test_resume_saves_checkpoint
+    - test_resume_no_checkpoint_store
+- [x] Frontend tests (6 test files, vitest)
+  - PipelineList.test.tsx -- 5 tests (loading, empty, row render, resume/cancel buttons)
+  - KanbanBoard.test.tsx -- 3 tests (null board, column headers, task cards)
+  - TaskSubmitForm.test.tsx -- 2 tests (form inputs, disabled button)
+  - EventLog.test.tsx -- 4 tests (empty/disconnected states, event items, clear button)
+  - AgentStatusPanel.test.tsx -- 2 tests (empty state, agent list)
+  - ResultViewer.test.tsx -- 4 tests (null pipeline, synthesis, subtask results, close button)
+
+## T5.5 Final verification
+- [x] ruff check src/ tests/ -- All checks passed
+- [x] ruff format --check src/ tests/ -- 94 files already formatted
+- [x] mypy src/ -- Success: no issues found in 52 source files
+- [x] pytest tests/unit/ tests/api/ -v -- 213 passed (197 Phase 1-4 + 16 Phase 5)
+- [ ] npm test -- (requires npm install; sandbox restriction)
+- [ ] npm run build -- (requires npm install; sandbox restriction)
