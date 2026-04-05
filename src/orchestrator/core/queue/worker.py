@@ -243,6 +243,27 @@ class AgentWorker:
 
         try:
             result: AgentResult = await exec_task
+
+            # CLI stdout에서 코드 블록 추출 → 파일 저장
+            cwd = getattr(self.executor, '_cwd', None)
+            if not cwd:
+                config = getattr(self.executor, 'config', None)
+                if config:
+                    cwd = getattr(config, 'working_dir', None)
+            if cwd and result.output:
+                from orchestrator.core.file_extractor import (
+                    extract_files_from_output,
+                )
+
+                files = extract_files_from_output(result.output, cwd)
+                if files:
+                    logger.info(
+                        "files_extracted_from_output",
+                        task_id=task.id,
+                        count=len(files),
+                        files=files,
+                    )
+
             return result
         finally:
             heartbeat_task.cancel()

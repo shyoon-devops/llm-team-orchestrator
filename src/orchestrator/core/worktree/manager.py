@@ -46,14 +46,14 @@ class WorktreeManager:
         repo_path: str,
         branch_name: str,
         *,
-        base_branch: str = "main",
+        base_branch: str | None = None,
     ) -> str:
         """Git worktree를 생성한다.
 
         Args:
             repo_path: 소스 Git 저장소 경로.
             branch_name: worktree 브랜치 이름.
-            base_branch: 기반 브랜치. 기본값 "main".
+            base_branch: 기반 브랜치. None이면 자동 감지 (HEAD).
 
         Returns:
             생성된 worktree 디렉토리 경로.
@@ -64,6 +64,17 @@ class WorktreeManager:
         """
         worktree_path = self._base_dir / branch_name
         worktree_path.mkdir(parents=True, exist_ok=True)
+
+        # base_branch 자동 감지 (None이면 HEAD 사용)
+        if base_branch is None:
+            detect_proc = await asyncio.create_subprocess_exec(
+                "git", "symbolic-ref", "--short", "HEAD",
+                cwd=repo_path,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, _ = await detect_proc.communicate()
+            base_branch = stdout.decode().strip() or "main"
 
         proc = await asyncio.create_subprocess_exec(
             "git",

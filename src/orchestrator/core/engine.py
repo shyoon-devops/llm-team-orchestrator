@@ -94,7 +94,7 @@ class OrchestratorEngine:
         git_dir = os.path.join(path, ".git")
         if not os.path.isdir(git_dir):
             proc = await asyncio.create_subprocess_exec(
-                "git", "init", cwd=path,
+                "git", "init", "-b", "main", cwd=path,
                 stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
             )
             await proc.wait()
@@ -668,7 +668,7 @@ class OrchestratorEngine:
                 for st in subtasks:
                     lane = st.assigned_preset or "default"
                     if lane not in worktree_paths:
-                        branch_name = f"orch-{task_id[:8]}-{lane}"
+                        branch_name = f"orch-{task_id.replace('pipeline-', '')[:8]}-{lane}"
                         try:
                             wt_path = await self._worktree_manager.create(
                                 pipeline.target_repo,
