@@ -175,3 +175,38 @@ C-CLI-01: Claude CLI 3초 타임아웃 설정 → retry 3회 → codex fallback
 - Step 5: target_repo가 git repo가 아니면 자동 git init (명세 반영됨)
 - 해결: engine.submit_task()에서 target_repo가 git repo가 아니면 자동 git init + 초기 커밋
 
+
+---
+
+## 시나리오 7: v2 — 컨텍스트 체이닝 + cwd 격리 + 서브태스크 UI
+
+```
+사용자: "웹 3d 물리엔진 플레이그라운드 만들어줘" / feature-team / /home/yoon/repository/my-project
+```
+
+| Step | 동작 | 참조 문서 | 검증 |
+|------|------|----------|------|
+| 1 | POST /api/tasks → engine.submit_task() | api-spec.md | ✅ |
+| 2 | target_repo가 git repo 아님 → 자동 git init | v2-spec.md §2, functions.md §1.2 | ✅ |
+| 3 | **cwd 자기보호**: target_repo ≠ 오케스트레이터 디렉토리 확인 | v2-spec.md §2 | ✅ |
+| 4 | TeamPlanner.plan_team() → 4 subtask (architect→impl→review→test) | functions.md §5.2 | ✅ |
+| 5 | subtask description = 프리셋설명 + 사용자태스크 | functions.md §5.2 step 3 | ✅ |
+| 6 | worktree 생성 → cwd = worktree_path | functions.md §1.15 step 2 | ✅ |
+| 7 | architect 워커 시작 → executor.run(prompt, cwd=worktree) | v2-spec.md §2 | ✅ |
+| 8 | Claude CLI 실행 in cwd=worktree (오케스트레이터 디렉토리 아님) | functions.md §10.2 | ✅ |
+| 9 | architect 완료 → board.complete(result) → result 저장 | functions.md §2.3 | ✅ |
+| 10 | implementer 승격 → **_build_prompt(): architect 결과를 프롬프트에 주입** | v2-spec.md §3 | ✅ |
+| 11 | implementer 실행 (architect 결과 + 사용자 태스크 포함 프롬프트) | v2-spec.md §3 | ✅ |
+| 12 | implementer 완료 → reviewer/tester 승격 (각각 implementer 결과 주입) | v2-spec.md §3 | ✅ |
+| 13 | 모든 subtask 완료 → Synthesizer | functions.md §7.1 | ✅ |
+| 14 | GET /api/tasks/{id}/subtasks → 서브태스크 상세 | v2-spec.md §4 | ✅ |
+| 15 | GET /api/tasks/{id}/files → 생성된 파일 목록 | v2-spec.md §4 | ✅ |
+| 16 | 프론트엔드: PipelineDetail → SubtaskList + FileExplorer | v2-spec.md §4 | ✅ |
+| 17 | my-project/ 에 파일 생성 확인, 오케스트레이터 디렉토리 오염 없음 | v2-spec.md §6 | ✅ |
+
+**결과: 불일치 없음** ✅
+
+**교차 검증:**
+- v2-spec.md §2 cwd 자기보호 ↔ functions.md submit_task pre-conditions | ✅
+- v2-spec.md §3 _build_prompt ↔ functions.md §3.4 _run_loop | ✅ (v2에서 추가)
+- v2-spec.md §4 subtask API ↔ api-spec.md | ⚠️ api-spec.md에 아직 추가 안 됨 → v2 구현 시 추가
