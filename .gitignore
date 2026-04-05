@@ -1,0 +1,12 @@
+# MVP 브랜치: 기획/설계 문서만 관리
+# 소스 코드는 구현 시작 시 추가
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*~
