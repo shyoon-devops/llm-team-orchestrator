@@ -478,7 +478,7 @@ log.info("decomposition_completed")
 
 | Type | 용도 | 예시 |
 |------|------|------|
-| `feat` | 새 기능 | `feat(executor): add MCPAgentExecutor` |
+| `feat` | 새 기능 | `feat(executor): add MCP injection to CLIAdapter` |
 | `fix` | 버그 수정 | `fix(adapter): handle claude stdin >7000 chars` |
 | `test` | 테스트 추가/수정 | `test(board): add TaskBoard concurrent access tests` |
 | `docs` | 문서 | `docs: add deployment specification` |

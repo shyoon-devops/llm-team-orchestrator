@@ -67,7 +67,7 @@
 | 항목 | 값 |
 |------|-----|
 | **산출물** | `src/orchestrator/core/executor/base.py`, `cli_executor.py`, `mcp_executor.py`, `synthesizer.py` |
-| **참고 명세** | [data-models.md](data-models.md#coreexecutor) — AgentExecutor ABC, CLIAgentExecutor, MCPAgentExecutor, [functions.md](functions.md#synthesizer) — synthesize() 전략별 |
+| **참고 명세** | [data-models.md](data-models.md#coreexecutor) — AgentExecutor ABC, CLIAgentExecutor, CLIAgentExecutor, [functions.md](functions.md#synthesizer) — synthesize() 전략별 |
 | **Skills** | `python-conventions` |
 | **검증** | `uv run pytest tests/unit/test_executor.py tests/unit/test_synthesizer.py` |
 

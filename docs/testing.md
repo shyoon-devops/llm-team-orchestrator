@@ -755,7 +755,7 @@ Fixture: mock_adapter (MockCLIAdapter)
 | `test_health_check_delegates_to_adapter` | health_check()이 adapter.health_check() 호출 |
 | `test_executor_type_is_cli` | executor_type == "cli" 확인 |
 
-### 4.5 `tests/unit/core/executor/test_mcp_executor.py` — MCPAgentExecutor [P3]
+### 4.5 `tests/unit/core/executor/test_mcp_executor.py` — CLIAgentExecutor (MCP injection) [P3]
 
 ```
 소스: src/orchestrator/core/executor/mcp_executor.py

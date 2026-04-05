@@ -53,7 +53,7 @@ PoC(pyc 기반)에서 MVP로 전환 시, 아래 모듈이 리팩터링 대상이
 | `queue/worker.py` | `core/queue/worker.py` | 그대로 이동 |
 | `executor/base.py` | `core/executor/base.py` | AgentExecutor ABC |
 | `executor/cli_executor.py` | `core/executor/cli_executor.py` | CLIAgentExecutor |
-| `executor/mcp_executor.py` | `core/executor/mcp_executor.py` | MCPAgentExecutor |
+| `executor/mcp_executor.py` | `core/executor/mcp_executor.py` | CLIAgentExecutor |
 | `executor/synthesizer.py` | `core/events/synthesizer.py` | events/ 하위로 이동 |
 | `hybrid/orchestrator.py` | `core/engine.py` | HybridOrchestrator → OrchestratorEngine으로 리팩터링 |
 | `poc/demo.py` | 삭제 | MVP에서 제거 |
@@ -99,7 +99,7 @@ llm-team-orchestrator/
 │       │   │   ├── __init__.py              # executor 패키지, public API 내보내기         [P1]
 │       │   │   ├── base.py                  # AgentExecutor ABC                           [P1][PoC→]
 │       │   │   ├── cli_executor.py          # CLIAgentExecutor (subprocess)               [P1][PoC→]
-│       │   │   └── mcp_executor.py          # MCPAgentExecutor (LLM + MCP tools)          [P3][PoC→]
+│       │   │   └── mcp_executor.py          # CLIAgentExecutor (CLI + MCP/Skills injection)          [P3][PoC→]
 │       │   │
 │       │   ├── queue/                       # TaskBoard 칸반 큐
 │       │   │   ├── __init__.py              # queue 패키지                                [P1]
@@ -230,7 +230,7 @@ llm-team-orchestrator/
 │   │   │   │   ├── __init__.py
 │   │   │   │   ├── test_base_executor.py    # AgentExecutor ABC 테스트                    [P1][NEW]
 │   │   │   │   ├── test_cli_executor.py     # CLIAgentExecutor 테스트                     [P1][NEW]
-│   │   │   │   └── test_mcp_executor.py     # MCPAgentExecutor 테스트                     [P3][NEW]
+│   │   │   │   └── test_mcp_executor.py     # CLIAgentExecutor 테스트                     [P3][NEW]
 │   │   │   │
 │   │   │   ├── queue/
 │   │   │   │   ├── __init__.py
@@ -508,9 +508,9 @@ llm-team-orchestrator/
 - **LOC:** ~60
 
 #### `executor/mcp_executor.py` [P3][PoC→]
-- **목적:** MCPAgentExecutor — LLM + MCP tools 기반 에이전트 실행
+- **목적:** CLIAgentExecutor — LLM + MCP tools 기반 에이전트 실행
 - **주요 클래스:**
-  - `MCPAgentExecutor(AgentExecutor)`
+  - `CLIAgentExecutor(AgentExecutor)`
     - `__init__(llm_config, mcp_servers: dict)`
     - `async run(prompt, *, timeout, context) -> AgentResult` — LiteLLM + MCP 호출
     - `async health_check() -> bool` — MCP 서버 연결 확인

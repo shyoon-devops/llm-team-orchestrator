@@ -630,7 +630,7 @@ dependencies = [
 
 Phase 3에서는 신규 패키지 추가 없이 기존 의존성으로 구현한다.
 - `tenacity` — RetryPolicy 구현
-- `litellm` — MCPAgentExecutor, TeamPlanner 구현
+- `litellm` — CLIAgentExecutor (MCP injection), TeamPlanner 구현
 - `langgraph` — 체크포인터 활용
 
 > **참고:** 비용 추적 관련 의존성은 Out of Scope (N/A)이므로 추가하지 않는다.

@@ -52,7 +52,7 @@
 | 5 | TeamPlanner: incident-analysis-team | presets-guide.md | ✅ 3 에이전트 병렬 |
 | 6 | TaskBoard: 3 태스크 (depends_on 없음) | functions.md §2.1 | ✅ 병렬 |
 | 7 | 3 Worker 동시 시작 | functions.md §3.2 | ✅ |
-| 8 | 각 Worker: MCPAgentExecutor.run() | functions.md §MCP | ⚠️ 프로덕션 MCP 미구현 (stub) |
+| 8 | 각 Worker: CLIAgentExecutor with MCP injection | functions.md §MCP | ✅ CLI + --mcp-config 플래그로 MCP 주입 |
 | 9 | 3개 모두 완료 | functions.md §2.3 | ✅ |
 | 10 | Synthesizer: narrative 전략 | functions.md §7.1 | ✅ |
 | 11 | GET /api/board | api-spec.md §2.7 | ✅ 칸반 상태 |
