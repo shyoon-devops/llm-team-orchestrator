@@ -23,7 +23,7 @@
 
 ### 1.1 `AgentResult`
 
-에이전트 실행 결과를 담는 불변 데이터 모델. CLI subprocess든 MCP tool call이든 동일한 형태로 반환한다.
+에이전트 실행 결과를 담는 불변 데이터 모델. 모든 CLI subprocess 실행 결과를 동일한 형태로 반환한다.
 
 ```python
 from pydantic import BaseModel, Field
@@ -33,7 +33,7 @@ from typing import Any
 class AgentResult(BaseModel):
     """에이전트 실행 결과.
 
-    CLI subprocess 또는 MCP tool call의 결과를 통합된 형태로 표현한다.
+    CLI subprocess 실행 결과를 통합된 형태로 표현한다.
     output은 에이전트가 생성한 텍스트 결과, raw는 파싱 전 원시 데이터를 보존한다.
     """
 
@@ -201,11 +201,14 @@ from typing import Any
 class AgentExecutor(ABC):
     """도메인 무관 에이전트 실행 인터페이스.
 
-    모든 에이전트 실행기(CLI, MCP, Mock)는 이 ABC를 상속한다.
+    모든 에이전트 실행기(CLI, Mock)는 이 ABC를 상속한다.
     run()으로 프롬프트를 실행하고, health_check()로 가용성을 확인한다.
 
+    MCP 서버와 Skills는 별도 실행기가 아니라 CLI 플래그로 전달된다.
+    예: claude -p "..." --system-prompt "persona" --mcp-config '{"mcpServers":{...}}'
+
     Attributes:
-        executor_type: 실행기 유형 식별자. "cli" | "mcp" | "mock"
+        executor_type: 실행기 유형 식별자. "cli" | "mock"
     """
 
     executor_type: str  # 서브클래스에서 클래스 변수로 정의
@@ -258,13 +261,22 @@ class CLIAgentExecutor(AgentExecutor):
     """CLI subprocess 기반 에이전트 실행기.
 
     내부적으로 CLIAdapter를 사용하여 CLI 프로세스를 실행한다.
-    persona 프롬프트를 자동으로 주입하고, 결과를 파싱하여 AgentResult를 반환한다.
+    persona 프롬프트, MCP 서버, Skills를 CLI 플래그로 주입하고,
+    결과를 파싱하여 AgentResult를 반환한다.
+
+    모든 에이전트(코딩, ELK 분석, Grafana 모니터링 등)는 이 실행기를 사용한다.
+    MCP 서버와 Skills는 CLI 옵션으로 전달된다:
+    - claude: --system-prompt, --mcp-config
+    - codex: CODEX_HOME 기반 MCP 설정
+    - gemini: --mcp-config (또는 설정 파일)
 
     Attributes:
         executor_type: "cli" (고정)
         adapter: CLIAdapter 인스턴스 (Claude/Codex/Gemini)
         config: AdapterConfig 실행 설정
         persona_prompt: 시스템 프롬프트에 주입할 페르소나 텍스트
+        mcp_config: MCP 서버 설정 (CLI --mcp-config 플래그로 전달)
+        skills: Skill 목록 (CLI에 전달)
     """
 
     executor_type: str = "cli"
@@ -274,16 +286,23 @@ class CLIAgentExecutor(AgentExecutor):
         adapter: CLIAdapter,
         config: AdapterConfig,
         persona_prompt: str = "",
+        mcp_config: dict[str, Any] | None = None,
+        skills: list[str] | None = None,
     ) -> None:
         """
         Args:
             adapter: CLIAdapter 구현체 (ClaudeAdapter, CodexAdapter, GeminiAdapter).
             config: 어댑터 실행 설정.
-            persona_prompt: 에이전트 페르소나 프롬프트. 프롬프트 앞에 결합됨.
+            persona_prompt: 에이전트 페르소나 프롬프트. --system-prompt로 주입.
+            mcp_config: MCP 서버 설정. --mcp-config로 전달.
+                예: {"mcpServers": {"elasticsearch": {"command": "npx", ...}}}
+            skills: Skill 이름 목록. CLI에 전달.
         """
         self.adapter = adapter
         self.config = config
         self.persona_prompt = persona_prompt
+        self.mcp_config = mcp_config or {}
+        self.skills = skills or []
 
     async def run(
         self,
@@ -294,76 +313,17 @@ class CLIAgentExecutor(AgentExecutor):
     ) -> AgentResult:
         """CLI subprocess를 실행하여 결과를 반환한다.
 
-        1. persona_prompt + prompt를 결합
-        2. context가 있으면 프롬프트에 추가 정보 삽입
-        3. adapter.run()으로 CLI 실행
-        4. 결과를 AgentResult로 파싱하여 반환
+        1. persona_prompt → --system-prompt 플래그로 전달
+        2. mcp_config → --mcp-config 플래그로 전달
+        3. skills → CLI 옵션으로 전달
+        4. context가 있으면 프롬프트에 추가 정보 삽입
+        5. adapter.run()으로 CLI 실행
+        6. 결과를 AgentResult로 파싱하여 반환
         """
         ...
 
     async def health_check(self) -> bool:
         """CLI 바이너리 존재 여부 및 인증 상태를 확인한다."""
-        ...
-```
-
-### 2.3 `MCPAgentExecutor`
-
-MCP 서버 기반 에이전트 실행기. LLM + MCP 도구 호출로 에이전트를 실행한다 (예: ELK 분석가, Grafana 모니터링).
-
-```python
-from orchestrator.core.presets.models import MCPServerDef
-
-
-class MCPAgentExecutor(AgentExecutor):
-    """MCP 서버 기반 에이전트 실행기.
-
-    LLM을 직접 호출하면서 MCP 서버의 도구를 사용하여 작업을 수행한다.
-    인시던트 분석 등 코딩 외 도메인에서 사용된다.
-
-    Attributes:
-        executor_type: "mcp" (고정)
-        model: LLM 모델 이름 (예: "claude-sonnet-4-20250514")
-        mcp_servers: MCP 서버 정의 딕셔너리
-        persona_prompt: 에이전트 페르소나 프롬프트
-    """
-
-    executor_type: str = "mcp"
-
-    def __init__(
-        self,
-        model: str,
-        mcp_servers: dict[str, MCPServerDef],
-        persona_prompt: str = "",
-    ) -> None:
-        """
-        Args:
-            model: LiteLLM 호환 모델 이름.
-            mcp_servers: MCP 서버 이름 → MCPServerDef 매핑.
-            persona_prompt: 에이전트 페르소나 프롬프트.
-        """
-        self.model = model
-        self.mcp_servers = mcp_servers
-        self.persona_prompt = persona_prompt
-
-    async def run(
-        self,
-        prompt: str,
-        *,
-        timeout: int = 300,
-        context: dict[str, Any] | None = None,
-    ) -> AgentResult:
-        """LLM + MCP 도구로 작업을 수행하고 결과를 반환한다.
-
-        1. MCP 서버 연결 (stdio transport)
-        2. 사용 가능한 도구 목록 조회
-        3. LLM에 프롬프트 + 도구 전달
-        4. tool_use 루프 실행 (LLM → tool call → result → LLM)
-        5. 최종 결과를 AgentResult로 반환
-        """
-        ...
-
-    async def health_check(self) -> bool:
-        """MCP 서버 연결 가능 여부를 확인한다."""
         ...
 ```
 
@@ -566,14 +526,14 @@ class AgentLimits(BaseModel):
 
 ### 3.4 `MCPServerDef`
 
-MCP 서버 하나의 실행 정의. MCP agent가 사용하는 도구 서버의 시작 명령과 환경을 명세한다.
+MCP 서버 하나의 실행 정의. CLI agent에 --mcp-config로 전달되는 도구 서버의 시작 명령과 환경을 명세한다.
 
 ```python
 class MCPServerDef(BaseModel):
     """MCP 서버 실행 정의.
 
     stdio transport 기반 MCP 서버의 실행 명령, 인자, 환경 변수를 정의한다.
-    MCPAgentExecutor가 이 정보로 서버를 기동한다.
+    CLIAgentExecutor가 이 정보를 --mcp-config 플래그로 CLI에 전달한다.
     """
 
     command: str = Field(
@@ -637,8 +597,10 @@ from typing import Literal
 class AgentPreset(BaseModel):
     """에이전트 프리셋.
 
-    에이전트의 페르소나, 실행 모드, CLI 우선순위, 모델, 도구 접근, MCP 서버,
+    에이전트의 페르소나, CLI 우선순위, 모델, 도구 접근, MCP 서버, Skills,
     실행 제한을 하나의 재사용 가능한 단위로 묶는다.
+    모든 에이전트는 CLI(claude/codex/gemini)로 실행되며, MCP 서버와
+    Skills는 CLI 플래그로 전달되는 도구 옵션이다.
     YAML 파일(presets/agents/*.yaml)로 저장·로딩된다.
     """
 
@@ -665,13 +627,9 @@ class AgentPreset(BaseModel):
         ...,
         description="에이전트 페르소나 정의",
     )
-    execution_mode: Literal["cli", "mcp"] = Field(
-        default="cli",
-        description="실행 모드. 'cli'=CLI subprocess, 'mcp'=LLM+MCP도구",
-    )
     preferred_cli: Literal["claude", "codex", "gemini"] | None = Field(
         default="claude",
-        description="우선 사용 CLI. execution_mode='cli'일 때만 유효. None이면 자동 선택",
+        description="우선 사용 CLI. None이면 자동 선택",
     )
     fallback_cli: list[Literal["claude", "codex", "gemini"]] = Field(
         default_factory=list,
@@ -689,7 +647,12 @@ class AgentPreset(BaseModel):
     )
     mcp_servers: dict[str, MCPServerDef] = Field(
         default_factory=dict,
-        description="MCP 서버 이름 → 실행 정의 매핑. execution_mode='mcp'일 때 필수",
+        description="MCP 서버 이름 → 실행 정의 매핑. CLI --mcp-config 플래그로 전달",
+    )
+    skills: list[str] = Field(
+        default_factory=list,
+        description="에이전트에 부여할 Skill 목록. CLI 옵션으로 전달",
+        examples=[["code-review", "test-generation"]],
     )
     limits: AgentLimits = Field(
         default_factory=AgentLimits,
@@ -709,7 +672,6 @@ class AgentPreset(BaseModel):
                         "backstory": "10년간 대규모 시스템 개발 경험",
                         "constraints": ["테스트 코드 필수", "타입 힌트 필수"],
                     },
-                    "execution_mode": "cli",
                     "preferred_cli": "claude",
                     "fallback_cli": ["codex", "gemini"],
                     "model": "claude-sonnet-4-20250514",
@@ -718,6 +680,7 @@ class AgentPreset(BaseModel):
                         "disallowed": [],
                     },
                     "mcp_servers": {},
+                    "skills": [],
                     "limits": {
                         "timeout": 300,
                         "max_turns": 50,
@@ -742,13 +705,14 @@ persona:
   constraints:
     - 테스트 코드를 반드시 포함할 것
     - 타입 힌트를 반드시 사용할 것
-execution_mode: cli
 preferred_cli: claude
 fallback_cli: [codex, gemini]
 model: claude-sonnet-4-20250514
 tools:
   allowed: []
   disallowed: []
+mcp_servers: {}
+skills: []
 limits:
   timeout: 300
   max_turns: 50
@@ -767,12 +731,12 @@ limits:
     "backstory": "10년간 대규모 시스템 개발 경험",
     "constraints": ["테스트 코드를 반드시 포함할 것", "타입 힌트를 반드시 사용할 것"]
   },
-  "execution_mode": "cli",
   "preferred_cli": "claude",
   "fallback_cli": ["codex", "gemini"],
   "model": "claude-sonnet-4-20250514",
   "tools": { "allowed": [], "disallowed": [] },
   "mcp_servers": {},
+  "skills": [],
   "limits": { "timeout": 300, "max_turns": 50, "max_iterations": 10 }
 }
 ```
@@ -2264,11 +2228,10 @@ OrchestratorConfig
     │       │
     │       ├──→ AgentWorker
     │       │       └── AgentExecutor (ABC)
-    │       │           ├── CLIAgentExecutor
-    │       │           │   ├── CLIAdapter
-    │       │           │   └── AdapterConfig
-    │       │           └── MCPAgentExecutor
-    │       │               └── MCPServerDef
+    │       │           └── CLIAgentExecutor
+    │       │               ├── CLIAdapter
+    │       │               ├── AdapterConfig
+    │       │               └── mcp_config / skills (CLI 플래그)
     │       │
     │       ├──→ TeamPlanner → Pipeline
     │       │                   ├── SubTask

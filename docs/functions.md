@@ -918,7 +918,7 @@ def __init__(
 - `worker_id` (`str`): 워커 고유 ID.
 - `lane` (`str`): 담당 레인 이름.
 - `board` (`TaskBoard`): 태스크 보드 참조.
-- `executor` (`AgentExecutor`): 에이전트 실행기.
+- `executor` (`CLIAgentExecutor`): CLI 기반 에이전트 실행기. 모든 에이전트는 CLI를 통해 실행된다.
 - `event_bus` (`EventBus`): 이벤트 발행기.
 - `poll_interval` (`float`): 태스크 폴링 간격 (초). 기본값 `1.0`.
 - `diff_collector` (`FileDiffCollector | None`): 파일 변경 수집기. CLI executor에서 사용.
@@ -1800,7 +1800,7 @@ for change in changes:
 
 > 모듈: `core/adapters/factory.py`
 
-AgentPreset + AuthProvider로부터 AgentExecutor 인스턴스를 생성하는 팩토리.
+AgentPreset + AuthProvider로부터 CLIAgentExecutor 인스턴스를 생성하는 팩토리. 모든 에이전트는 CLI를 통해 실행되며, MCP 서버와 Skills는 CLI별 방식으로 주입된다.
 
 ### 9.1 `__init__`
 
@@ -1841,51 +1841,52 @@ def create(
     preset: AgentPreset,
     *,
     working_dir: str | None = None,
-) -> AgentExecutor:
+) -> CLIAgentExecutor:
 ```
 
-**목적:** AgentPreset으로부터 적절한 AgentExecutor를 생성한다.
+**목적:** AgentPreset으로부터 CLIAgentExecutor를 생성한다. 모든 에이전트는 CLI를 통해 실행되며, MCP 서버와 Skills는 CLI 플래그/설정으로 주입된다.
 
 **Args:**
 - `preset` (`AgentPreset`): 에이전트 프리셋.
 - `working_dir` (`str | None`): CLI 실행 작업 디렉토리. worktree 경로가 주로 사용됨.
 
 **Returns:**
-- `AgentExecutor`: 생성된 실행기 (CLIAgentExecutor 또는 MCPAgentExecutor).
+- `CLIAgentExecutor`: 생성된 실행기. 페르소나, MCP, Skills 설정이 포함된 CLIAdapter 래퍼.
 
 **Raises:**
 - `AuthError`: API 키를 찾을 수 없는 경우.
 - `CLINotFoundError`: CLI 바이너리가 설치되지 않은 경우.
-- `ValueError`: 유효하지 않은 `execution_mode`.
 
 **Pre-conditions:**
-- `execution_mode="cli"`인 경우: `preferred_cli`에 해당하는 API 키가 있어야 한다.
-- `execution_mode="mcp"`인 경우: `mcp_servers`가 비어있지 않아야 한다.
+- `preferred_cli`에 해당하는 API 키가 있어야 한다.
+- `mcp_servers`가 있으면 해당 서버 설정이 유효해야 한다.
 
 **Post-conditions:**
-- 반환된 `AgentExecutor`는 즉시 사용 가능하다.
+- 반환된 `CLIAgentExecutor`는 즉시 사용 가능하다.
+- MCP 서버/Skills 설정이 CLI별 방식으로 주입된 상태이다.
 
 **Side effects:**
 - `AuthProvider.get_key()` 호출
 - CLI 바이너리 존재 여부 확인 (which 명령)
+- Codex: `CODEX_HOME` 임시 디렉토리에 `config.toml` 생성 (MCP 설정)
+- Gemini: `working_dir/.gemini/settings.json` + `.gemini/GEMINI.md` 생성
 
 **실행 흐름:**
 
 ```
-execution_mode == "cli":
-    1. preferred_cli에서 CLI 이름 결정
-    2. _cli_provider_map으로 프로바이더 이름 조회
-    3. auth_provider.get_key(provider)로 API 키 조회
-    4. AdapterConfig 생성 (api_key, timeout, model, working_dir)
-    5. CLIAdapter 서브클래스 생성 (ClaudeAdapter/CodexAdapter/GeminiAdapter)
-    6. persona.to_system_prompt()로 페르소나 프롬프트 생성
-    7. CLIAgentExecutor(adapter, config, persona_prompt) 반환
-
-execution_mode == "mcp":
-    1. model 결정
-    2. mcp_servers 딕셔너리 검증
-    3. persona.to_system_prompt()로 페르소나 프롬프트 생성
-    4. MCPAgentExecutor(model, mcp_servers, persona_prompt) 반환
+1. preferred_cli에서 CLI 이름 결정
+2. _cli_provider_map으로 프로바이더 이름 조회
+3. auth_provider.get_key(provider)로 API 키 조회
+4. persona.to_system_prompt()로 페르소나 프롬프트 생성
+5. mcp_servers가 있으면 CLI별 MCP 설정 준비:
+   - Claude:  --mcp-config JSON 플래그 생성
+   - Codex:   CODEX_HOME 임시 디렉토리에 config.toml 작성
+   - Gemini:  .gemini/settings.json 작성
+6. skills가 있으면 skill 명령 목록 구성
+7. AdapterConfig 생성 (api_key, timeout, model, working_dir,
+                        mcp_config, persona_prompt, skills)
+8. CLIAdapter 서브클래스 생성 (ClaudeAdapter/CodexAdapter/GeminiAdapter)
+9. CLIAgentExecutor(adapter, config) 반환
 ```
 
 **Async/Sync:** Sync
@@ -1895,15 +1896,17 @@ execution_mode == "mcp":
 ```python
 factory = AdapterFactory(auth_provider, config)
 
-# CLI executor
+# 코딩 에이전트 (CLI only)
 preset = registry.load_agent_preset("implementer")
 executor = factory.create(preset, working_dir="/tmp/worktrees/impl-001")
-# → CLIAgentExecutor(adapter=ClaudeAdapter, ...)
+# → CLIAgentExecutor(adapter=CodexAdapter, ...)
 
-# MCP executor
+# ELK 분석 에이전트 (CLI + MCP servers)
 preset = registry.load_agent_preset("elk-analyst")
-executor = factory.create(preset)
-# → MCPAgentExecutor(model="claude-sonnet-4-20250514", mcp_servers={...})
+executor = factory.create(preset, working_dir="/tmp/worktrees/elk-001")
+# → CLIAgentExecutor(adapter=ClaudeAdapter,
+#       mcp_config={"mcpServers": {"elasticsearch": {...}}})
+# Claude CLI가 --mcp-config 플래그로 MCP 서버에 접근
 ```
 
 ---
@@ -1980,6 +1983,12 @@ class ClaudeAdapter(CLIAdapter):
     headless 명령:
         claude -p "{prompt}" --output-format json --permission-mode bypassPermissions
 
+    페르소나 주입:
+        --system-prompt "{persona_prompt}"
+
+    MCP 서버 주입:
+        --mcp-config '{"mcpServers": {"server-name": {"command": "...", "args": [...]}}}'
+
     Known issues:
         - stdin >7,000 chars → empty output. 긴 프롬프트는 temp file 사용
         - `--bare` 플래그 사용 금지 — firstParty 인증(claude.ai)과 충돌하여 "Not logged in" 에러 발생
@@ -2008,7 +2017,8 @@ class ClaudeAdapter(CLIAdapter):
                - claude -p "{prompt}" --output-format json
                  --permission-mode bypassPermissions
                - model 지정 시: --model {model}
-               - system_prompt 지정 시: --system-prompt "{persona}"
+               - persona 주입 시: --system-prompt "{persona_prompt}"
+               - MCP 서버 주입 시: --mcp-config '{json}'
                - `--bare` 플래그 절대 사용하지 않음
             3. 환경 변수 설정: ANTHROPIC_API_KEY (있는 경우만)
                - 없으면 firstParty 인증 (claude.ai 로그인) 자동 사용
@@ -2022,6 +2032,16 @@ class ClaudeAdapter(CLIAdapter):
                - duration_ms: JSON의 `duration_ms` 필드
                - tokens_used: JSON의 `usage.input_tokens + usage.output_tokens`
                - raw: 전체 JSON 응답
+
+        MCP config 생성 예시:
+            config.mcp_servers = {
+                "elasticsearch": {
+                    "command": "npx",
+                    "args": ["-y", "@modelcontextprotocol/server-elasticsearch"],
+                    "env": {"ELASTICSEARCH_URL": "..."}
+                }
+            }
+            → --mcp-config '{"mcpServers": {"elasticsearch": {...}}}'
 
         Raises:
             CLIExecutionError: exit_code != 0
@@ -2049,8 +2069,23 @@ class CodexAdapter(CLIAdapter):
     headless 명령:
         codex exec --json --ephemeral --full-auto "{prompt}"
 
+    페르소나 주입:
+        CODEX_HOME 디렉토리의 instructions 파일에 persona prompt 작성.
+
+    MCP 서버 주입:
+        CODEX_HOME 디렉토리의 config.toml에 mcp_servers 섹션 작성.
+        Codex는 inline --mcp-config 플래그를 지원하지 않으므로,
+        에이전트별 격리된 CODEX_HOME 디렉토리를 생성한다.
+
+        예시 config.toml:
+            [mcp_servers.elasticsearch]
+            command = "npx"
+            args = ["-y", "@modelcontextprotocol/server-elasticsearch"]
+            [mcp_servers.elasticsearch.env]
+            ELASTICSEARCH_URL = "..."
+
     Known issue:
-        inline MCP injection 불가 → CODEX_HOME 격리 또는 MCP server mode 사용.
+        inline MCP injection 불가 → CODEX_HOME 격리 사용.
     """
 
     @property
@@ -2065,13 +2100,17 @@ class CodexAdapter(CLIAdapter):
         """Codex CLI를 실행한다.
 
         실행 흐름:
-            1. subprocess 명령어 구성:
+            1. MCP 서버가 있으면 CODEX_HOME 임시 디렉토리 설정:
+               a. 임시 디렉토리 생성 (/tmp/codex-home-{worker_id}/)
+               b. config.toml 작성 (mcp_servers 섹션)
+               c. instructions 파일에 persona prompt 작성
+            2. subprocess 명령어 구성:
                - codex exec --json --ephemeral --full-auto "{prompt}"
                - model 지정 시: --model {model}
-            2. 환경 변수 설정: OPENAI_API_KEY
-            3. working_dir에서 subprocess 실행
-            4. stdout JSON 파싱 (NDJSON 형식 처리)
-            5. AgentResult 생성:
+            3. 환경 변수 설정: OPENAI_API_KEY, CODEX_HOME (MCP 사용 시)
+            4. working_dir에서 subprocess 실행
+            5. stdout JSON 파싱 (NDJSON 형식 처리)
+            6. AgentResult 생성:
                - output: 마지막 message의 text
                - raw: 전체 JSON 이벤트 배열
 
@@ -2101,6 +2140,23 @@ class GeminiAdapter(CLIAdapter):
     headless 명령:
         gemini -p "{prompt}" --output-format stream-json --yolo
 
+    페르소나 주입:
+        working_dir/.gemini/GEMINI.md 파일에 persona prompt 작성.
+
+    MCP 서버 주입:
+        working_dir/.gemini/settings.json에 mcpServers 섹션 작성.
+
+        예시 settings.json:
+            {
+              "mcpServers": {
+                "elasticsearch": {
+                  "command": "npx",
+                  "args": ["-y", "@modelcontextprotocol/server-elasticsearch"],
+                  "env": {"ELASTICSEARCH_URL": "..."}
+                }
+              }
+            }
+
     Known issues:
         - stdout pollution bug (#21433) → stream-json에서 result 이벤트만 필터링
         - Tool hang in headless (#19774) → --yolo 필수
@@ -2118,15 +2174,19 @@ class GeminiAdapter(CLIAdapter):
         """Gemini CLI를 실행한다.
 
         실행 흐름:
-            1. subprocess 명령어 구성:
+            1. MCP 서버/페르소나가 있으면 .gemini/ 디렉토리 설정:
+               a. working_dir/.gemini/ 디렉토리 생성
+               b. settings.json 작성 (mcpServers 섹션)
+               c. GEMINI.md 작성 (persona prompt)
+            2. subprocess 명령어 구성:
                - gemini -p "{prompt}" --output-format stream-json --yolo
                - model 지정 시: --model {model}
-            2. 환경 변수 설정: GOOGLE_API_KEY (또는 GEMINI_API_KEY)
-            3. working_dir에서 subprocess 실행
-            4. stdout stream-json 파싱:
+            3. 환경 변수 설정: GOOGLE_API_KEY (또는 GEMINI_API_KEY)
+            4. working_dir에서 subprocess 실행
+            5. stdout stream-json 파싱:
                - 각 줄을 JSON으로 파싱
                - type=="result" 이벤트만 필터링 (stdout pollution 대응)
-            5. AgentResult 생성:
+            6. AgentResult 생성:
                - output: result 이벤트의 text
                - raw: 전체 필터링된 이벤트 배열
 
@@ -2154,6 +2214,14 @@ class GeminiAdapter(CLIAdapter):
 | Claude Code | `claude -p "{prompt}" --output-format json --permission-mode bypassPermissions` | `ANTHROPIC_API_KEY` (없으면 firstParty 인증 사용) | JSON (단일 객체) |
 | Codex CLI | `codex exec --json --ephemeral --full-auto "{prompt}"` | `OPENAI_API_KEY` | NDJSON (이벤트 스트림) |
 | Gemini CLI | `gemini -p "{prompt}" --output-format stream-json --yolo` | `GOOGLE_API_KEY` / `GEMINI_API_KEY` | Stream-JSON (이벤트 스트림, `result`만 필터) |
+
+## 부록: CLI별 MCP/페르소나 주입 방법
+
+| CLI | 페르소나 주입 | MCP 서버 주입 |
+|-----|--------------|---------------|
+| Claude Code | `--system-prompt "{persona}"` | `--mcp-config '{"mcpServers":{...}}'` |
+| Codex CLI | `CODEX_HOME/instructions` 파일 | `CODEX_HOME/config.toml`의 `[mcp_servers]` 섹션 |
+| Gemini CLI | `.gemini/GEMINI.md` 파일 | `.gemini/settings.json`의 `mcpServers` 필드 |
 
 ## 부록: 에러 계층 구조
 

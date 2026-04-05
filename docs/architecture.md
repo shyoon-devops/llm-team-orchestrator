@@ -78,7 +78,7 @@
  │  │ Execution (TaskBoard + AgentWorker)                       │   │
  │  │  ► TaskBoard: 칸반 보드 (큐 관리, DAG 의존성, retry)      │   │
  │  │  ► AgentWorker: 레인별 태스크 소비, AgentExecutor 호출     │   │
- │  │  ► AgentExecutor: CLI/MCP 실행 추상화                     │   │
+ │  │  ► AgentExecutor: CLI 실행 추상화 (MCP/Skills는 CLI 플래그) │   │
  │  └──────────────┬───────────────────────────────────────────┘   │
  │                 │                                                │
  │  ┌──────────────▼───────────────────────────────────────────┐   │
@@ -148,8 +148,7 @@ src/orchestrator/core/
 ├── engine.py              # OrchestratorEngine (단일 진입점)
 ├── executor/
 │   ├── base.py            # AgentExecutor ABC
-│   ├── cli_executor.py    # CLIAgentExecutor (subprocess)
-│   └── mcp_executor.py    # MCPAgentExecutor (LLM + MCP tools)
+│   └── cli_executor.py    # CLIAgentExecutor (subprocess + MCP/Skills)
 ├── queue/
 │   ├── board.py           # TaskBoard (칸반 보드 큐)
 │   ├── models.py          # TaskItem, TaskState, Lane
@@ -300,7 +299,8 @@ Hybrid 모델은 두 가지 실행 메커니즘을 명확히 분리한다:
 │   │     ▼                     │                            │
 │   │ [7] AgentExecutor         │                            │
 │   │     CLI subprocess 실행   │                            │
-│   │     또는 MCP tool 호출    │                            │
+│   │     (persona+MCP+skills   │                            │
+│   │      → CLI 플래그)        │                            │
 │   │     │                     │                            │
 │   │     ├─ 성공 → done        │                            │
 │   │     └─ 실패 → retry/fail  │                            │
@@ -497,7 +497,7 @@ async def submit_to_board(state: PlanningState) -> dict:
 │  │  ► 상태 전이 │    │    소비/실행  │              ▼             │
 │  └──────┬───────┘    └──────┬───────┘     ┌──────────────────┐  │
 │         │                   │              │  AgentExecutor    │  │
-│         │                   │              │  (CLI / MCP)      │  │
+│         │                   │              │  (CLI+MCP+Skills) │  │
 │         │                   │              └──────────────────┘  │
 │         │                   │                                     │
 │         │                   │ 실행 결과                           │
@@ -1150,7 +1150,6 @@ persona:
   constraints:
     - IaC 원칙 준수 필수
     - 시크릿은 반드시 환경변수로 관리
-execution_mode: cli
 preferred_cli: claude
 limits:
   max_tokens: 32768

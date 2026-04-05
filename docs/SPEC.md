@@ -109,11 +109,12 @@ class AgentExecutor(ABC):
     """도메인 무관 에이전트 실행 인터페이스."""
     async def run(self, prompt, *, timeout=300, context=None) -> AgentResult
     async def health_check(self) -> bool
-    executor_type: str  # "cli" | "mcp" | "mock"
+    executor_type: str  # "cli" | "mock"
 
 # 구현체
 CLIAgentExecutor    # Claude Code, Codex CLI, Gemini CLI (subprocess)
-MCPAgentExecutor    # ELK 분석가, Grafana 모니터링, K8s 운영 (LLM + MCP tools)
+                    # MCP 서버와 Skills는 CLI 플래그로 전달
+                    # 예: claude -p "..." --mcp-config '{"mcpServers":{...}}'
 ```
 
 ### 프리셋
@@ -128,9 +129,9 @@ class PersonaDef(BaseModel):
 class AgentPreset(BaseModel):
     name: str
     persona: PersonaDef
-    execution_mode: str = "cli"      # "cli" | "mcp"
     preferred_cli: str = "claude"
-    mcp_servers: dict = {}
+    mcp_servers: dict = {}           # CLI에 --mcp-config로 전달
+    skills: list[str] = []           # CLI에 skill로 전달
     tools: ToolAccess = ToolAccess()
     limits: AgentLimits = AgentLimits()
 
@@ -252,7 +253,7 @@ OrchestratorError
 ```
 src/orchestrator/
 ├── core/
-│   ├── executor/           # AgentExecutor ABC + CLI/MCP 구현
+│   ├── executor/           # AgentExecutor ABC + CLI 구현
 │   ├── queue/              # TaskBoard + AgentWorker (칸반)
 │   ├── presets/            # PresetRegistry + 모델
 │   ├── planner/            # TeamPlanner (LLM 기반 팀 구성)

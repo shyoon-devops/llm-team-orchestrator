@@ -54,7 +54,7 @@ file-structure.md의 모든 소스 파일이 functions.md에 대응 함수를 �
 | core/planner/team_planner.py | §6 | ✅ |
 | core/executor/base.py | data-models.md | ✅ |
 | core/executor/cli_executor.py | data-models.md | ✅ |
-| core/executor/mcp_executor.py | data-models.md | ✅ |
+| ~~core/executor/mcp_executor.py~~ | ~~삭제됨~~ — 모든 에이전트는 CLI 실행 | ✅ |
 | core/events/synthesizer.py | §7 | ✅ |
 | core/events/bus.py | §(data-models.md) | ✅ |
 | core/events/types.py | data-models.md | ✅ |
