@@ -104,9 +104,15 @@ class TeamPlanner:
                 task_name_to_id[dep] for dep in task_def.depends_on if dep in task_name_to_id
             ]
 
+            # 프리셋 설명 + 사용자 원본 태스크를 합쳐서 CLI에 전달
+            full_description = (
+                f"{task_def.description.strip()}\n\n"
+                f"사용자 태스크: {task}"
+            )
+
             subtask = SubTask(
                 id=task_name_to_id[task_name],
-                description=task_def.description,
+                description=full_description,
                 assigned_preset=task_def.agent,
                 assigned_cli=assigned_cli,
                 depends_on=depends_on_ids,

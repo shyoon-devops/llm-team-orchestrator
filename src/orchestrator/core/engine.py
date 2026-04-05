@@ -80,6 +80,44 @@ class OrchestratorEngine:
         self._workers: dict[str, AgentWorker] = {}
         self._bg_tasks: dict[str, asyncio.Task[None]] = {}
 
+    @staticmethod
+    async def _ensure_git_repo(path: str) -> None:
+        """target_repo가 git 저장소가 아니면 자동 초기화."""
+        import os
+
+        os.makedirs(path, exist_ok=True)
+        git_dir = os.path.join(path, ".git")
+        if not os.path.isdir(git_dir):
+            proc = await asyncio.create_subprocess_exec(
+                "git", "init", cwd=path,
+                stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
+            )
+            await proc.wait()
+            for cmd in [
+                ["git", "config", "user.name", "orchestrator"],
+                ["git", "config", "user.email", "orch@localhost"],
+            ]:
+                p = await asyncio.create_subprocess_exec(
+                    *cmd, cwd=path,
+                    stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
+                )
+                await p.wait()
+            # 빈 초기 커밋
+            gitkeep = os.path.join(path, ".gitkeep")
+            if not os.path.exists(gitkeep):
+                with open(gitkeep, "w") as f:
+                    f.write("")
+            for cmd in [
+                ["git", "add", "-A"],
+                ["git", "commit", "-m", "init: orchestrator target repo"],
+            ]:
+                p = await asyncio.create_subprocess_exec(
+                    *cmd, cwd=path,
+                    stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
+                )
+                await p.wait()
+            logger.info("target_repo_initialized", path=path)
+
     async def start(self) -> None:
         """엔진을 시작한다. 리소스 초기화."""
         logger.info("engine_starting")
@@ -143,6 +181,10 @@ class OrchestratorEngine:
         if not task.strip():
             msg = "Task description cannot be empty"
             raise ValueError(msg)
+
+        # target_repo가 git repo가 아니면 자동 초기화
+        if target_repo:
+            await self._ensure_git_repo(target_repo)
 
         if team_preset is not None:
             # 존재 여부 검증

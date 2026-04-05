@@ -93,6 +93,7 @@ ignore = [
 known-first-party = ["orchestrator"]
 
 [tool.ruff.lint.per-file-ignores]
+"src/orchestrator/core/engine.py" = ["ASYNC230", "ASYNC240"]  # sync fs ops in _ensure_git_repo
 "tests/**/*.py" = [
     "S101",
     "ARG",

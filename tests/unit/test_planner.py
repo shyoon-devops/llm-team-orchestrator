@@ -100,9 +100,11 @@ class TestTeamPlannerPreset:
             team_preset=team_preset,
         )
         descriptions = [s.description for s in subtasks]
-        assert "Design the system" in descriptions
-        assert "Implement the code" in descriptions
-        assert "Review the code" in descriptions
+        assert any("Design the system" in d for d in descriptions)
+        assert any("Implement the code" in d for d in descriptions)
+        assert any("Review the code" in d for d in descriptions)
+        # 사용자 태스크도 포함되어야 함
+        assert all("Build auth system" in d for d in descriptions)
 
     async def test_plan_from_preset_assigned_presets(self, registry_with_presets, team_preset):
         planner = TeamPlanner(preset_registry=registry_with_presets)
