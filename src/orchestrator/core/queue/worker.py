@@ -205,6 +205,19 @@ class AgentWorker:
                 depends_on=task.depends_on,
                 context_length=len(prompt) - len(task.description),
             )
+        # cwd가 있으면 작업 디렉토리 안내 추가
+        cwd = getattr(self.executor, '_cwd', None)
+        if not cwd:
+            config = getattr(self.executor, 'config', None)
+            if config:
+                cwd = getattr(config, 'working_dir', None)
+        if cwd:
+            prompt += (
+                f"\n\n작업 디렉토리: {cwd}\n"
+                f"이 디렉토리에서 직접 파일을 생성/수정하세요. "
+                f"stdout으로 코드를 출력하지 마세요."
+            )
+
         return prompt
 
     async def _run_with_heartbeat(self, task: Any) -> Any:
