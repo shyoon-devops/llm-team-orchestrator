@@ -709,3 +709,89 @@ while not self._board.is_all_done(task_id):
     await asyncio.sleep(0.1)
     elapsed += 0.1
 ```
+
+---
+
+## 17. P14: file_extractor 패턴 개선
+
+### 문제
+
+현재 패턴 ````lang:filepath`만 매칭. 실제 CLI 출력은 다양한 형식:
+- `` ```python:src/app.py `` (현재 지원)
+- `` ```python # src/app.py `` (현재 지원)
+- `` **파일: src/app.py** \n```python `` (미지원)
+- `` ### src/app.py \n```python `` (미지원)
+- `개선안` 같은 잘못된 파일명 추출 (false positive)
+
+### 해결
+
+1. 다중 패턴 매칭:
+```python
+PATTERNS = [
+    # ```python:src/app.py
+    r"```(?:\w+)?:([\w/.\-]+)\s*\n(.*?)```",
+    # **파일: src/app.py** 다음에 코드블록
+    r"\*\*(?:파일|File|file):\s*([\w/.\-]+)\*\*\s*\n```(?:\w+)?\n(.*?)```",
+    # ### src/app.py 다음에 코드블록
+    r"###?\s+([\w/.\-]+\.(?:py|ts|js|yaml|yml|json|md|txt))\s*\n```(?:\w+)?\n(.*?)```",
+]
+```
+
+2. 파일명 검증:
+```python
+def _is_valid_filename(name: str) -> bool:
+    # 확장자가 있어야 함
+    if '.' not in name:
+        return False
+    # 한글/특수문자만 있으면 거부
+    if not re.match(r'^[\w/.\-]+$', name):
+        return False
+    # 허용 확장자
+    valid_ext = {'.py', '.ts', '.js', '.json', '.yaml', '.yml', '.md', '.txt', '.toml', '.cfg', '.ini', '.html', '.css'}
+    return any(name.endswith(ext) for ext in valid_ext)
+```
+
+---
+
+## 18. P15: TeamPlanner LLM 기반 역할별 세부 지시
+
+### 문제
+
+TeamPlanner가 프리셋의 고정 description만 사용:
+```
+architect: "아키텍처 설계 및 인터페이스 정의"  ← 모든 태스크에 동일
+```
+
+### 해결
+
+TeamPlanner.plan_team()에서 **LLM을 호출하여 태스크별 세부 지시 생성:**
+
+```python
+async def _decompose_with_llm(self, task: str, team_preset: TeamPreset) -> list[SubTask]:
+    """LLM을 호출하여 사용자 태스크를 역할별 세부 지시로 분해."""
+    import litellm
+    
+    roles = list(team_preset.tasks.keys())
+    prompt = f"""다음 태스크를 팀 역할에 맞게 분해하세요.
+
+태스크: {task}
+역할: {', '.join(roles)}
+
+각 역할에 대해 구체적인 지시를 JSON으로 작성하세요:
+[
+  {{"role": "design", "instruction": "FastAPI 서버의 엔드포인트 설계...", "files_to_create": ["src/app.py", ...]}},
+  ...
+]
+"""
+    response = await litellm.acompletion(
+        model=self._model,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    # JSON 파싱 → SubTask 생성
+```
+
+### 스텁 유지 옵션
+
+LLM 호출 비용이 발생하므로, `config.planner_use_llm: bool = False` 설정으로 제어:
+- False (기본): 현재 동작 유지 (프리셋 description + 사용자 태스크 덧붙이기)
+- True: LLM 호출하여 역할별 세부 지시 생성

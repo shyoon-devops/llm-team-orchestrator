@@ -398,3 +398,22 @@ C-CLI-01: Claude CLI 3초 타임아웃 설정 → retry 3회 → codex fallback
 | is_all_done() → true (모두 done 또는 failed) | ✅ |
 | 파이프라인 → PARTIALLY_COMPLETED 또는 FAILED | ✅ |
 | 파이프라인 타임아웃 → 강제 종료 | ✅ |
+
+---
+
+## 시나리오 18: v2 iter12 — file_extractor + TeamPlanner LLM
+
+### 18a: file_extractor 다중 패턴
+| Step | 검증 |
+|------|------|
+| CLI 출력: `**파일: src/app.py**\n```python\n...` | ✅ |
+| 새 패턴 매칭 → src/app.py 추출 | ✅ |
+| `개선안` 같은 확장자 없는 이름 거부 | ✅ |
+
+### 18b: TeamPlanner LLM (planner_use_llm=True)
+| Step | 검증 |
+|------|------|
+| planner_use_llm=True 설정 | ✅ |
+| litellm.acompletion 호출 | ✅ |
+| JSON 응답에서 역할별 세부 지시 추출 | ✅ |
+| SubTask.description = LLM이 생성한 구체적 지시 | ✅ |
