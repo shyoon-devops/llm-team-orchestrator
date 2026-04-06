@@ -778,6 +778,78 @@ class OrchestratorEngine:
                         state=finished_item.state.value,
                     )
 
+            # ── Phase 3.5: Quality Gate — reviewer 결과 평가 + 재작업 ────
+            from orchestrator.core.quality_gate import QualityGate
+
+            quality_gate = QualityGate()
+            max_review_iterations = 2
+            review_iteration = 0
+
+            while review_iteration < max_review_iterations:
+                # reviewer subtask 찾기
+                reviewer_tasks = [
+                    self._board.get_task(st.id)
+                    for st in subtasks
+                    if (st.assigned_preset or "").lower() in ("reviewer", "auditor")
+                ]
+                reviewer_tasks = [t for t in reviewer_tasks if t and t.result]
+
+                needs_rework = False
+                for rt in reviewer_tasks:
+                    verdict = quality_gate.evaluate(rt.result, "reviewer")
+                    if not verdict.approved:
+                        logger.info(
+                            "quality_gate_rework_needed",
+                            task_id=task_id,
+                            reviewer_task=rt.id,
+                            iteration=review_iteration + 1,
+                        )
+                        # implementer 재작업 태스크 생성
+                        rework_id = generate_id("rework")
+                        rework_task = TaskItem(
+                            id=rework_id,
+                            title=f"재작업 (iteration {review_iteration + 1})",
+                            description=(
+                                f"리뷰어 피드백에 따라 코드를 수정하세요:\n\n"
+                                f"{verdict.feedback[:2000]}\n\n"
+                                f"사용자 태스크: {pipeline.task}"
+                            ),
+                            lane="implementer",
+                            depends_on=[],
+                            pipeline_id=task_id,
+                        )
+                        await self._board.submit(rework_task)
+
+                        # 재리뷰 태스크
+                        re_review_id = generate_id("review")
+                        re_review_task = TaskItem(
+                            id=re_review_id,
+                            title=f"재리뷰 (iteration {review_iteration + 1})",
+                            description=(
+                            f"재작업된 코드를 리뷰하세요.\n\n"
+                            f"사용자 태스크: {pipeline.task}"
+                        ),
+                            lane="reviewer",
+                            depends_on=[rework_id],
+                            pipeline_id=task_id,
+                        )
+                        await self._board.submit(re_review_task)
+
+                        needs_rework = True
+                        break
+
+                if not needs_rework:
+                    break
+
+                # 재작업 완료 대기
+                while not self._board.is_all_done(task_id):
+                    current = self._pipelines.get(task_id)
+                    if current and current.status == PipelineStatus.CANCELLED:
+                        return
+                    await asyncio.sleep(0.1)
+
+                review_iteration += 1
+
             # ── Phase 4: RUNNING → SYNTHESIZING ──────────────────────────
             self._pipelines[task_id] = self._pipelines[task_id].model_copy(
                 update={"status": PipelineStatus.SYNTHESIZING}
