@@ -375,3 +375,14 @@ C-CLI-01: Claude CLI 3초 타임아웃 설정 → retry 3회 → codex fallback
 | implementer 워커가 rework 태스크를 board.claim()으로 소비 | ✅ |
 | reviewer 워커가 re-review 태스크를 claim()으로 소비 | ✅ |
 | 큐-컨슘: 워커가 TaskBoard만 의존, 오케스트레이터와 직접 통신 없음 | ✅ |
+
+---
+
+## 시나리오 16: v2 iter10 — 오케스트레이터 설정 + 진행 표시
+
+| Step | 검증 |
+|------|------|
+| team-config.yaml에 quality_gate 설정 | ✅ |
+| CLI run --wait에서 subtask별 상태 표시 | ✅ |
+| 15초 간격 진행 상황 로그 | ✅ |
+| heartbeat 기반 경과 시간 표시 | ✅ |

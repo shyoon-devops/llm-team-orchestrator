@@ -592,3 +592,76 @@ def evaluate(self, result, role):
 | 독립 폴링 루프 | worker._run_loop while self._running |
 | depends_on=[]이면 병렬 | review-team 2 agent 동시 실행 확인 |
 | 워커 추가/제거 코드 변경 없이 | lanes_needed set에서 동적 생성 |
+
+---
+
+## 14. P11: 오케스트레이터 명시적 설정
+
+### 현재 문제
+
+오케스트레이터의 동작을 제어하는 설정이 코드에 흩어져 있음. 사용자가 어떤 값을 설정할 수 있는지 불명확.
+
+### 필요한 명시적 설정
+
+```yaml
+# team-config.yaml 또는 환경변수로 제어 가능한 설정
+orchestrator:
+  # 품질 게이트
+  quality_gate:
+    enabled: true                    # QualityGate 활성화 여부
+    max_review_iterations: 2         # 최대 재작업 횟수
+    verdict_format: "json"           # "json" | "keyword"
+  
+  # 작업 분배
+  execution:
+    default_timeout: 300             # CLI 타임아웃 (초)
+    poll_interval: 0.5               # 파이프라인 상태 폴링 간격
+    worktree_cleanup: true           # 완료 후 worktree 자동 삭제
+    merge_strategy: "theirs"         # "theirs" | "ours" | "manual"
+  
+  # 로깅
+  logging:
+    level: "info"                    # "debug" | "info" | "warning"
+    progress_interval: 15            # 진행 상황 로그 간격 (초)
+    show_cli_output: false           # CLI stdout 실시간 표시
+```
+
+---
+
+## 15. P12: 작업 진행 과정 표시
+
+### 현재 문제
+
+CLI에서 `orchestrator run --wait` 실행 시 상태만 표시 (PENDING→RUNNING→COMPLETED). 어떤 subtask가 어떤 상태인지, 어떤 에이전트가 뭘 하고 있는지 보이지 않음.
+
+### 필요한 표시 내용
+
+```
+Pipeline: pipeline-adc620cd
+Task: Python 계산기 라이브러리를 만들어줘
+Team: feature-team (architect → implementer → reviewer → tester)
+
+┌──────────────┬─────────┬──────────┬────────┐
+│ Subtask      │ Agent   │ Status   │ Time   │
+├──────────────┼─────────┼──────────┼────────┤
+│ 설계         │ claude  │ ✅ DONE  │ 120s   │
+│ 구현         │ codex   │ 🔄 BUSY │ 45s    │
+│ 리뷰         │ claude  │ ⏳ WAIT  │ -      │
+│ 테스트       │ codex   │ ⏳ WAIT  │ -      │
+└──────────────┴─────────┴──────────┴────────┘
+
+[120s] architect ✅ 완료 (설계 문서 생성)
+[165s] implementer 🔄 실행 중... (codex exec)
+```
+
+### 구현 위치
+
+**CLI `run` 명령의 --wait 폴링 루프에서 Rich Live 또는 간단한 테이블 출력:**
+
+```python
+# cli.py run 내부, 폴링 루프:
+subtasks_resp = await client.get(f"/api/tasks/{pipeline_id}/subtasks")
+for st in subtasks_resp:
+    status_icon = {"done": "✅", "in_progress": "🔄", "backlog": "⏳", "failed": "❌"}.get(st.state, "?")
+    print(f"  {st.lane:12s} {status_icon} {st.state:12s} {st.elapsed_ms//1000}s")
+```
