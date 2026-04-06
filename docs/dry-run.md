@@ -386,3 +386,15 @@ C-CLI-01: Claude CLI 3초 타임아웃 설정 → retry 3회 → codex fallback
 | CLI run --wait에서 subtask별 상태 표시 | ✅ |
 | 15초 간격 진행 상황 로그 | ✅ |
 | heartbeat 기반 경과 시간 표시 | ✅ |
+
+---
+
+## 시나리오 17: v2 iter11 — failed 의존자 전이
+
+| Step | 검증 |
+|------|------|
+| subtask A FAILED | ✅ |
+| A에 의존하는 B → 자동 FAILED (cascade) | ✅ |
+| is_all_done() → true (모두 done 또는 failed) | ✅ |
+| 파이프라인 → PARTIALLY_COMPLETED 또는 FAILED | ✅ |
+| 파이프라인 타임아웃 → 강제 종료 | ✅ |

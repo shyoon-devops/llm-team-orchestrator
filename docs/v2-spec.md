@@ -665,3 +665,47 @@ for st in subtasks_resp:
     status_icon = {"done": "✅", "in_progress": "🔄", "backlog": "⏳", "failed": "❌"}.get(st.state, "?")
     print(f"  {st.lane:12s} {status_icon} {st.state:12s} {st.elapsed_ms//1000}s")
 ```
+
+---
+
+## 16. P13: 파이프라인 행 방지 — failed 의존자 전이
+
+### 문제
+
+subtask A가 FAILED → subtask B (depends_on=[A])가 BACKLOG에 영원히 멈춤 → is_all_done()이 false → 파이프라인 무한 대기.
+
+### 해결
+
+TaskBoard.complete() 또는 fail()에서 failed 태스크의 의존자도 FAILED로 전이:
+
+```python
+# board.py fail() 내부:
+async def fail(self, task_id, error):
+    task.state = TaskState.FAILED
+    # 이 태스크에 의존하는 모든 태스크도 FAILED
+    await self._cascade_failure(task_id)
+
+async def _cascade_failure(self, failed_id):
+    for task in self._tasks.values():
+        if failed_id in task.depends_on and task.state == TaskState.BACKLOG:
+            task.state = TaskState.FAILED
+            task.error = f"Dependency failed: {failed_id}"
+            await self._cascade_failure(task.id)  # 재귀
+```
+
+### 추가: 파이프라인 타임아웃
+
+engine._execute_pipeline에 전체 파이프라인 타임아웃 추가:
+
+```python
+pipeline_timeout = self.config.default_timeout * len(subtasks)
+elapsed = 0
+while not self._board.is_all_done(task_id):
+    if elapsed > pipeline_timeout:
+        # 강제 종료
+        pipeline.status = PipelineStatus.FAILED
+        pipeline.error = f"Pipeline timeout after {elapsed}s"
+        break
+    await asyncio.sleep(0.1)
+    elapsed += 0.1
+```
