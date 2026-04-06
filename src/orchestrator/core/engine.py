@@ -782,7 +782,7 @@ class OrchestratorEngine:
             from orchestrator.core.quality_gate import QualityGate
 
             quality_gate = QualityGate()
-            max_review_iterations = 2
+            max_review_iterations = self.config.max_review_iterations
             review_iteration = 0
 
             while review_iteration < max_review_iterations:
@@ -894,7 +894,9 @@ class OrchestratorEngine:
 
                 for branch in worktree_branches:
                     try:
-                        merged = await self._worktree_manager.merge_to_target(branch)
+                        merged = await self._worktree_manager.merge_to_target(
+                            branch, strategy=self.config.merge_strategy,
+                        )
                         if merged:
                             logger.info("worktree_merged", branch=branch)
                             await self._event_bus.emit(

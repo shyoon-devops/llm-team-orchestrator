@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 
 import typer
 from rich.console import Console
@@ -50,10 +51,33 @@ def run(
                     PipelineStatus.CANCELLED,
                 }
                 elapsed = 0
+                last_progress_time = 0.0
+                progress_interval = engine.config.progress_interval
                 while elapsed < timeout:
                     await asyncio.sleep(1)
                     elapsed += 1
                     current = await engine.get_pipeline(pipeline.task_id)
+
+                    # Show subtask progress at configured interval
+                    now = time.monotonic()
+                    if now - last_progress_time >= progress_interval:
+                        last_progress_time = now
+                        board_state = engine.get_board_state()
+                        for lane_name, lane_tasks in board_state.get("lanes", {}).items():
+                            for state, items in lane_tasks.items():
+                                for item in items:
+                                    icon = {
+                                        "done": "\u2705",
+                                        "in_progress": "\U0001f504",
+                                        "backlog": "\u23f3",
+                                        "todo": "\U0001f4cb",
+                                        "failed": "\u274c",
+                                    }.get(state, "?")
+                                    title = item.get("title", "")[:40]
+                                    console.print(
+                                        f"  {icon} {lane_name:12s} {state:12s} {title}"
+                                    )
+
                     if current and current.status in terminal_states:
                         console.print(f"[blue]Final status:[/blue] {current.status}")
                         if current.synthesis:

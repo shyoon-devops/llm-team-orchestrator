@@ -171,6 +171,8 @@ class WorktreeManager:
         self,
         branch_name: str,
         target_branch: str = "main",
+        *,
+        strategy: str = "theirs",
     ) -> bool:
         """worktree 브랜치의 변경사항을 대상 브랜치에 merge한다.
 
@@ -179,6 +181,7 @@ class WorktreeManager:
         Args:
             branch_name: merge할 worktree 브랜치 이름.
             target_branch: merge 대상 브랜치. 기본값 "main".
+            strategy: merge 전략. "theirs", "ours", "manual" 중 하나.
 
         Returns:
             merge 성공 시 True.
@@ -205,15 +208,23 @@ class WorktreeManager:
         )
         await proc_co.communicate()
 
-        # Merge with theirs strategy (later branch wins on conflict)
+        # Merge with configurable strategy
+        if strategy == "manual":
+            # Manual mode: skip auto-merge, user resolves manually
+            logger.info(
+                "worktree_merge_manual_skip",
+                branch=branch_name,
+                target=target_branch,
+            )
+            return False
+
+        merge_cmd = [
+            "git", "merge", branch_name, "--no-ff",
+            "-X", strategy,
+            "-m", f"merge: {branch_name} into {target_branch}",
+        ]
         proc = await asyncio.create_subprocess_exec(
-            "git",
-            "merge",
-            branch_name,
-            "--no-ff",
-            "-X", "theirs",
-            "-m",
-            f"merge: {branch_name} into {target_branch}",
+            *merge_cmd,
             cwd=repo_path,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,

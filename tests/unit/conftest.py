@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 import pytest_asyncio
 
-from orchestrator.core.engine import OrchestratorEngine, _ORCHESTRATOR_PATH
+from orchestrator.core.engine import _ORCHESTRATOR_PATH, OrchestratorEngine
 
 
 @pytest_asyncio.fixture

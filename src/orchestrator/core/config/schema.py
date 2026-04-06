@@ -85,6 +85,50 @@ class OrchestratorConfig(BaseSettings):
         description="Synthesizer에서 사용하는 LLM 모델",
     )
 
+    # === Quality Gate ===
+    quality_gate_enabled: bool = Field(
+        default=True,
+        description="QualityGate 활성화 여부",
+    )
+    max_review_iterations: int = Field(
+        default=2,
+        ge=0,
+        le=10,
+        description="최대 재작업 횟수 (Quality Gate)",
+    )
+    quality_gate_verdict_format: Literal["json", "keyword"] = Field(
+        default="json",
+        description="Quality Gate 판정 형식 ('json' 또는 'keyword')",
+    )
+
+    # === Execution ===
+    poll_interval: float = Field(
+        default=0.5,
+        ge=0.1,
+        le=10.0,
+        description="파이프라인 상태 폴링 간격 (초)",
+    )
+    worktree_cleanup: bool = Field(
+        default=True,
+        description="완료 후 worktree 자동 삭제",
+    )
+    merge_strategy: Literal["theirs", "ours", "manual"] = Field(
+        default="theirs",
+        description="Git merge 전략 ('theirs', 'ours', 'manual')",
+    )
+
+    # === Logging ===
+    progress_interval: int = Field(
+        default=15,
+        ge=1,
+        le=300,
+        description="진행 상황 로그 간격 (초)",
+    )
+    show_cli_output: bool = Field(
+        default=False,
+        description="CLI stdout 실시간 표시",
+    )
+
     # === Git Worktree ===
     worktree_base_dir: str = Field(
         default="/tmp/orchestrator-worktrees",

@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
+import sys
+from collections.abc import Awaitable, Callable
+from decimal import Decimal
+
 import pytest
+import pytest_asyncio
 
 from orchestrator.core.config.schema import OrchestratorConfig
 from orchestrator.core.events.bus import EventBus
@@ -96,3 +102,107 @@ def sample_task_items() -> list[TaskItem]:
             pipeline_id="pipe-001",
         ),
     ]
+
+
+@pytest.fixture
+def add_integer_operands() -> tuple[int, int]:
+    """정수 덧셈 기본 케이스."""
+    return (2, 3)
+
+
+@pytest.fixture
+def add_mixed_operands() -> tuple[int, float]:
+    """정수와 실수 혼합 덧셈 케이스."""
+    return (2, 0.5)
+
+
+@pytest.fixture
+def add_large_integer_operands() -> tuple[int, int]:
+    """큰 정수 덧셈 케이스."""
+    return (10**18, 10**18)
+
+
+@pytest.fixture
+def add_float_operands() -> tuple[float, float]:
+    """실수 덧셈 기본 케이스."""
+    return (1.25, 2.75)
+
+
+@pytest.fixture
+def add_precision_operands() -> tuple[float, float]:
+    """부동소수점 정밀도 검증 케이스."""
+    return (0.1, 0.2)
+
+
+@pytest.fixture
+def add_nan_operand() -> float:
+    """NaN 입력 케이스."""
+    return float("nan")
+
+
+@pytest.fixture
+def add_infinite_operands() -> tuple[float, float]:
+    """무한대 연산 케이스."""
+    return (float("inf"), 1.0)
+
+
+@pytest.fixture
+def add_opposite_infinite_operands() -> tuple[float, float]:
+    """부호가 반대인 무한대 연산 케이스."""
+    return (float("inf"), float("-inf"))
+
+
+@pytest.fixture
+def add_invalid_string_operand() -> str:
+    """문자열 입력 에러 케이스."""
+    return "2"
+
+
+@pytest.fixture
+def add_invalid_bool_operand() -> bool:
+    """bool 입력 에러 케이스."""
+    return True
+
+
+@pytest.fixture
+def add_invalid_none_operand() -> None:
+    """None 입력 에러 케이스."""
+    return None
+
+
+@pytest.fixture
+def add_invalid_complex_operand() -> complex:
+    """복소수 입력 에러 케이스."""
+    return 1 + 2j
+
+
+@pytest.fixture
+def add_invalid_decimal_operand() -> Decimal:
+    """Decimal 입력 에러 케이스."""
+    return Decimal("1.5")
+
+
+@pytest.fixture
+def python_executable() -> str:
+    """현재 테스트 런타임의 Python 실행 파일 경로."""
+    return sys.executable
+
+
+@pytest_asyncio.fixture
+async def python_subprocess_runner(
+    python_executable: str,
+) -> Callable[[str], Awaitable[tuple[int, str, str]]]:
+    """Python one-liner를 subprocess로 실행하는 헬퍼."""
+
+    async def _run(code: str) -> tuple[int, str, str]:
+        process = await asyncio.create_subprocess_exec(
+            python_executable,
+            "-c",
+            code,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await process.communicate()
+        return process.returncode, stdout.decode().strip(), stderr.decode().strip()
+
+    return _run
