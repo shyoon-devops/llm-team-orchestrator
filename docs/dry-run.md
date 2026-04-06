@@ -311,3 +311,16 @@ C-CLI-01: Claude CLI 3초 타임아웃 설정 → retry 3회 → codex fallback
 | my-project/src/add.py 존재 확인 | ✅ |
 
 **교차 검증:** v2-spec §10 extract → worker._run_with_heartbeat 흐름 ✅
+
+---
+
+## 시나리오 13: v2 iter7 — merge conflict 해결
+
+| Step | 검증 |
+|------|------|
+| architect: DESIGN.md만 생성 (코드 파일 안 만듦) | ✅ |
+| implementer: src/add.py 생성 | ✅ |
+| tester: tests/test_add.py 생성 | ✅ |
+| merge 순서: architect → implementer → reviewer → tester | ✅ |
+| merge 전략: -X theirs (후행 우선) | ✅ |
+| my-project에 conflict markers 없음 | ✅ |

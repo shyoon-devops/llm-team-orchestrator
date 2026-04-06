@@ -414,3 +414,39 @@ def add(a, b):
 `` `
 파일 경로를 코드블록 언어 뒤에 콜론(:)으로 표시하세요.
 ```
+
+---
+
+## 11. P8: Worktree merge conflict 해결
+
+### 문제
+
+architect와 implementer가 같은 파일(src/add.py)을 각각 생성. merge 시 conflict markers가 파일에 남음.
+
+### 해결: 순차 merge + theirs 전략
+
+DAG 순서대로 merge하되, 후행 브랜치가 우선(--strategy-option theirs):
+
+```python
+# engine._execute_pipeline, merge 시:
+for branch in worktree_branches:
+    # theirs 전략: 나중 브랜치(implementer)가 architect를 덮어씀
+    proc = await asyncio.create_subprocess_exec(
+        "git", "merge", "--no-ff", "-X", "theirs", branch,
+        "-m", f"merge {branch}",
+        cwd=pipeline.target_repo,
+        stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.PIPE,
+    )
+```
+
+**이유:** DAG에서 implementer는 architect 결과를 이미 포함하므로 implementer 버전이 더 완전. architect의 스텁 코드보다 implementer의 실제 구현이 우선.
+
+### architect 역할 제한
+
+architect는 코드 파일을 만들지 말고 DESIGN.md만 생성하도록 constraint 강화:
+
+```yaml
+# architect.yaml constraints 추가:
+- "코드 파일(.py, .ts 등)은 생성하지 않는다 — DESIGN.md와 인터페이스 정의만 작성한다"
+```
