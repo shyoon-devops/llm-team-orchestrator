@@ -450,3 +450,99 @@ architect는 코드 파일을 만들지 말고 DESIGN.md만 생성하도록 cons
 # architect.yaml constraints 추가:
 - "코드 파일(.py, .ts 등)은 생성하지 않는다 — DESIGN.md와 인터페이스 정의만 작성한다"
 ```
+
+---
+
+## 12. P9: 결과 수집 + 품질 평가 + 후속작업 할당
+
+### 현재 동작
+
+```
+architect → implementer → reviewer (병렬) + tester (병렬)
+                           ↓                    ↓
+                        결과 수집              결과 수집
+                           ↓
+                        Synthesizer
+```
+
+reviewer가 "reject" 또는 "changes requested"를 반환해도 **오케스트레이터는 무시하고 COMPLETED 처리.**
+
+### 필요 동작
+
+```
+architect → implementer → reviewer + tester
+                           ↓           ↓
+                        결과 평가     결과 평가
+                           ↓
+                     approve? ──→ yes ──→ Synthesizer ──→ COMPLETED
+                        ↓ no
+                     implementer 재작업 (reviewer 피드백 포함)
+                        ↓
+                     reviewer 재리뷰
+                        ↓
+                     max_iterations 도달 → COMPLETED (with warnings)
+```
+
+### 구현 설계
+
+**1. 결과 평가 (QualityGate)**
+
+```python
+class QualityGate:
+    """subtask 결과를 평가하여 후속 작업이 필요한지 판단."""
+    
+    def evaluate(self, result: str, role: str) -> QualityVerdict:
+        """결과를 평가한다.
+        
+        Returns:
+            QualityVerdict with approved: bool, feedback: str
+        """
+        # reviewer 결과에서 키워드 탐색
+        lower = result.lower()
+        if any(kw in lower for kw in ["reject", "request_changes", "changes requested", "수정 필요"]):
+            return QualityVerdict(approved=False, feedback=result)
+        return QualityVerdict(approved=True, feedback="")
+
+class QualityVerdict(BaseModel):
+    approved: bool
+    feedback: str = ""
+```
+
+**2. 후속작업 할당 (engine._execute_pipeline)**
+
+```python
+# 모든 subtask 완료 후:
+reviewer_task = board.get_task(reviewer_subtask_id)
+if reviewer_task and reviewer_task.result:
+    verdict = quality_gate.evaluate(reviewer_task.result, "reviewer")
+    if not verdict.approved and iteration < max_review_iterations:
+        # implementer 재작업 태스크 생성
+        rework_task = TaskItem(
+            title=f"재작업: {reviewer_task.result[:50]}",
+            description=f"리뷰어 피드백:\n{verdict.feedback}\n\n이전 구현을 수정하세요.",
+            lane="implementer",
+            depends_on=[],  # 즉시 실행
+            pipeline_id=task_id,
+        )
+        await board.submit(rework_task)
+        # reviewer 재리뷰 태스크도
+        re_review_task = TaskItem(...)
+        await board.submit(re_review_task)
+        iteration += 1
+        continue  # 대기 루프 계속
+```
+
+**3. 병렬 처리 확인**
+
+현재 feature-team에서 reviewer+tester가 implement에 의존 → **둘 다 implement 완료 후 병렬 실행**. 이 동작은 이미 정상.
+
+추가로 **독립적인 subtask 감지**: depends_on이 없는 태스크는 모두 병렬 실행. 이것도 TaskBoard가 자동 처리.
+
+### max_review_iterations
+
+```yaml
+# team preset에 추가:
+max_review_iterations: 2  # 최대 2번 재작업 후 강제 완료
+```
+
+기본값: 1 (재작업 없이 바로 완료 — 현재 동작과 동일)

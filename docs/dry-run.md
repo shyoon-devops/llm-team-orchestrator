@@ -324,3 +324,41 @@ C-CLI-01: Claude CLI 3초 타임아웃 설정 → retry 3회 → codex fallback
 | merge 순서: architect → implementer → reviewer → tester | ✅ |
 | merge 전략: -X theirs (후행 우선) | ✅ |
 | my-project에 conflict markers 없음 | ✅ |
+
+---
+
+## 시나리오 14: v2 iter8 — 결과 평가 + 후속작업 + 병렬 확인
+
+### 14a: reviewer approve → 바로 완료
+
+| Step | 검증 |
+|------|------|
+| architect 완료 → implementer 시작 (순차) | ✅ |
+| implementer 완료 → reviewer + tester 동시 시작 (병렬) | ✅ |
+| reviewer 결과: "LGTM, approved" | ✅ |
+| QualityGate.evaluate() → approved=True | ✅ |
+| Synthesizer → COMPLETED | ✅ |
+
+### 14b: reviewer reject → implementer 재작업
+
+| Step | 검증 |
+|------|------|
+| reviewer 결과: "수정 필요: 에러 핸들링 부족" | ✅ |
+| QualityGate.evaluate() → approved=False, feedback="수정 필요..." | ✅ |
+| 재작업 TaskItem 생성 (implementer lane, reviewer 피드백 포함) | ✅ |
+| implementer 재작업 실행 | ✅ |
+| 재리뷰 TaskItem 생성 | ✅ |
+| reviewer 재리뷰 → approve | ✅ |
+| Synthesizer → COMPLETED | ✅ |
+
+### 14c: 병렬 처리 확인
+
+| Step | 검증 |
+|------|------|
+| feature-team: architect(순차) → implementer(순차) → reviewer+tester(병렬) | ✅ |
+| review-team: auditor+reviewer(병렬) | ✅ |
+| incident-analysis-team: elk+grafana+k8s(병렬) | ✅ |
+
+**교차 검증:**
+- v2-spec §12 QualityGate ↔ functions.md (미추가 — 구현 시 추가) | ⚠️
+- TaskBoard depends_on [] → 병렬 ↔ board.py _try_promote | ✅
