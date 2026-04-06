@@ -205,12 +205,13 @@ class WorktreeManager:
         )
         await proc_co.communicate()
 
-        # Merge
+        # Merge with theirs strategy (later branch wins on conflict)
         proc = await asyncio.create_subprocess_exec(
             "git",
             "merge",
             branch_name,
             "--no-ff",
+            "-X", "theirs",
             "-m",
             f"merge: {branch_name} into {target_branch}",
             cwd=repo_path,
