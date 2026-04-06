@@ -38,6 +38,7 @@ class ClaudeAdapter(CLIAdapter):
     ) -> list[str]:
         """Claude CLI 명령어를 구성한다.
 
+        stream-json + --verbose 조합으로 JSONL 실시간 스트리밍을 활성화한다.
         Note: --bare is intentionally not used; it can produce
         unstable output in certain scenarios.
         """
@@ -46,7 +47,8 @@ class ClaudeAdapter(CLIAdapter):
             "-p",
             prompt,
             "--output-format",
-            "json",
+            "stream-json",
+            "--verbose",
             "--permission-mode",
             "bypassPermissions",
         ]
@@ -58,7 +60,11 @@ class ClaudeAdapter(CLIAdapter):
         return cmd
 
     def _parse_output(self, stdout: str, stderr: str) -> AgentResult:
-        """Claude CLI JSON 출력을 파싱한다."""
+        """Claude stream-json JSONL 출력을 파싱한다.
+
+        이벤트 흐름: system(init) → assistant → rate_limit_event → result
+        result 이벤트에서 최종 출력을 추출한다.
+        """
         if not stdout.strip():
             if stderr.strip():
                 raise CLIExecutionError(
@@ -70,30 +76,58 @@ class ClaudeAdapter(CLIAdapter):
                 "Claude produced empty output",
                 cli=self.cli_name,
                 raw_output="",
-                expected_format="json",
+                expected_format="stream-json",
             )
 
-        try:
-            data = json.loads(stdout)
-        except json.JSONDecodeError:
-            # Plain text output (fallback)
-            return AgentResult(output=stdout.strip(), raw={"raw_stdout": stdout[:2000]})
+        output_parts: list[str] = []
+        tokens = 0
+        raw_events: list[dict[str, object]] = []
 
-        # Claude JSON output: check for is_error flag
-        if isinstance(data, dict):
-            if data.get("is_error", False):
-                error_msg = data.get("result", data.get("error", "Unknown Claude error"))
-                raise CLIExecutionError(
-                    f"Claude returned error: {error_msg}",
-                    cli=self.cli_name,
-                    stdout=stdout[:2000],
-                    stderr=stderr[:2000],
+        for line in stdout.strip().splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                event = json.loads(line)
+                raw_events.append(event)
+            except json.JSONDecodeError:
+                output_parts.append(line)
+                continue
+
+            event_type = event.get("type", "")
+
+            if event_type == "result":
+                result_text = event.get("result", "")
+                if result_text:
+                    output_parts.append(str(result_text))
+                if event.get("is_error", False):
+                    error_msg = event.get("result", "Unknown Claude error")
+                    raise CLIExecutionError(
+                        f"Claude returned error: {error_msg}",
+                        cli=self.cli_name,
+                        stdout=stdout[:2000],
+                        stderr=stderr[:2000],
+                    )
+
+            elif event_type == "assistant":
+                message = event.get("message", {})
+                content = message.get("content", []) if isinstance(message, dict) else []
+                if isinstance(content, list):
+                    for c in content:
+                        if isinstance(c, dict) and c.get("type") == "text":
+                            text = c.get("text", "")
+                            if text:
+                                output_parts.append(str(text))
+
+            usage = event.get("usage", {})
+            if isinstance(usage, dict):
+                tokens += int(
+                    usage.get("total_tokens", usage.get("output_tokens", 0))
                 )
-            output_text = data.get("result", data.get("output", stdout.strip()))
-            return AgentResult(
-                output=str(output_text),
-                tokens_used=data.get("num_tokens", 0),
-                raw=data,
-            )
 
-        return AgentResult(output=stdout.strip(), raw={"raw_stdout": stdout[:2000]})
+        final_output = "\n".join(output_parts) if output_parts else stdout.strip()
+        return AgentResult(
+            output=final_output,
+            tokens_used=tokens,
+            raw={"events": raw_events[:50]},
+        )

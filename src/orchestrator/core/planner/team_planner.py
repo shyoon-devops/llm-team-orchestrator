@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+import json
+from typing import TYPE_CHECKING, Any
 
 import structlog
 
@@ -27,24 +28,31 @@ class TeamPlanner:
     team_preset이 주어지면 프리셋에 따라 서브태스크를 생성하고,
     주어지지 않으면 기본 팀을 자동 구성한다 (LLM 자동 구성은 향후 구현).
 
+    use_llm=True일 때 프리셋 기반에서도 LLM을 호출하여 역할별 세부 지시를 생성한다.
+
     Attributes:
         model: 분해에 사용할 LLM 모델 이름.
         preset_registry: 프리셋 레지스트리 참조.
+        use_llm: LLM 기반 역할별 세부 지시 생성 여부.
     """
 
     def __init__(
         self,
         model: str = "claude-sonnet-4-20250514",
         preset_registry: PresetRegistry | None = None,
+        *,
+        use_llm: bool = False,
     ) -> None:
         """TeamPlanner를 초기화한다.
 
         Args:
             model: 분해에 사용할 LLM 모델. 기본값 "claude-sonnet-4-20250514".
             preset_registry: 프리셋 레지스트리. 자동 팀 구성 시 사용 가능한 프리셋을 참조.
+            use_llm: LLM 기반 역할별 세부 지시 생성 활성화.
         """
         self.model = model
         self.preset_registry = preset_registry
+        self.use_llm = use_llm
 
     async def plan_team(
         self,
@@ -71,6 +79,8 @@ class TeamPlanner:
             raise ValueError(msg)
 
         if team_preset is not None:
+            if self.use_llm:
+                return await self._plan_from_preset_with_llm(task, team_preset)
             return self._plan_from_preset(task, team_preset)
 
         return self._plan_auto(task, target_repo=target_repo)
@@ -126,6 +136,150 @@ class TeamPlanner:
             task=task[:100],
         )
         return subtasks, team_preset
+
+    async def _plan_from_preset_with_llm(
+        self,
+        task: str,
+        team_preset: TeamPreset,
+    ) -> tuple[list[SubTask], TeamPreset]:
+        """LLM을 호출하여 프리셋의 각 역할에 맞는 세부 지시를 생성한다.
+
+        Args:
+            task: 사용자 태스크 설명.
+            team_preset: 팀 프리셋.
+
+        Returns:
+            (서브태스크 목록, 사용된 팀 프리셋).
+        """
+        import asyncio
+
+        # 역할 정보 구성
+        roles_info: list[dict[str, str]] = []
+        for task_name, task_def in team_preset.tasks.items():
+            roles_info.append({
+                "role": task_name,
+                "agent": task_def.agent,
+                "base_description": task_def.description.strip()[:100],
+            })
+
+        prompt = (
+            "다음 태스크를 팀 역할에 맞게 분해하세요.\n\n"
+            f"태스크: {task}\n\n"
+            f"역할 목록:\n"
+        )
+        for info in roles_info:
+            prompt += f"- {info['role']} ({info['agent']}): {info['base_description']}\n"
+
+        prompt += (
+            "\n각 역할에 대해 구체적인 지시를 JSON 배열로 작성하세요. "
+            "반드시 아래 형식만 출력하세요:\n"
+            "```json\n"
+            "[\n"
+            '  {"role": "역할이름", "instruction": "구체적인 지시사항..."}\n'
+            "]\n"
+            "```\n"
+            "instruction은 해당 역할이 이 태스크에서 수행해야 할 구체적인 작업을 상세히 기술하세요."
+        )
+
+        try:
+            # CLI subprocess로 호출 (API 키 불필요, CLI 인증 사용)
+            proc = await asyncio.create_subprocess_exec(
+                "claude", "-p", prompt,
+                "--output-format", "text",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await asyncio.wait_for(
+                proc.communicate(), timeout=120,
+            )
+            if proc.returncode != 0:
+                raise RuntimeError(f"CLI failed: {stderr.decode()[:200]}")
+            raw = stdout.decode()
+            instructions = self._parse_llm_instructions(raw, team_preset)
+        except Exception:
+            logger.warning(
+                "planner_llm_fallback",
+                reason="LLM call failed, falling back to preset-based planning",
+            )
+            return self._plan_from_preset(task, team_preset)
+
+        # SubTask 생성
+        task_name_to_id: dict[str, str] = {}
+        for task_name in team_preset.tasks:
+            task_name_to_id[task_name] = generate_id("sub")
+
+        subtasks: list[SubTask] = []
+        for task_name, task_def in team_preset.tasks.items():
+            assigned_cli = self._resolve_cli(team_preset, task_def.agent)
+            depends_on_ids = [
+                task_name_to_id[dep] for dep in task_def.depends_on if dep in task_name_to_id
+            ]
+
+            # LLM이 생성한 세부 지시 사용, 없으면 프리셋 description 폴백
+            llm_instruction = instructions.get(task_name)
+            if llm_instruction:
+                full_description = (
+                    f"{llm_instruction}\n\n"
+                    f"사용자 태스크: {task}"
+                )
+            else:
+                full_description = (
+                    f"{task_def.description.strip()}\n\n"
+                    f"사용자 태스크: {task}"
+                )
+
+            subtask = SubTask(
+                id=task_name_to_id[task_name],
+                description=full_description,
+                assigned_preset=task_def.agent,
+                assigned_cli=assigned_cli,
+                depends_on=depends_on_ids,
+            )
+            subtasks.append(subtask)
+
+        logger.info(
+            "plan_from_preset_with_llm",
+            team_preset=team_preset.name,
+            subtask_count=len(subtasks),
+            llm_roles=list(instructions.keys()),
+            task=task[:100],
+        )
+        return subtasks, team_preset
+
+    def _parse_llm_instructions(
+        self,
+        raw: str,
+        team_preset: TeamPreset,
+    ) -> dict[str, str]:
+        """LLM 응답에서 역할별 지시를 파싱한다.
+
+        Args:
+            raw: LLM 응답 텍스트.
+            team_preset: 팀 프리셋 (역할 이름 검증용).
+
+        Returns:
+            {역할이름: 세부지시} 딕셔너리.
+        """
+        # JSON 코드블록 추출
+        import re
+        json_match = re.search(r"```(?:json)?\s*\n(.*?)```", raw, re.DOTALL)
+        json_str = json_match.group(1).strip() if json_match else raw.strip()
+
+        try:
+            items: list[dict[str, Any]] = json.loads(json_str)
+        except json.JSONDecodeError:
+            logger.warning("planner_llm_parse_failed", raw=raw[:200])
+            return {}
+
+        valid_roles = set(team_preset.tasks.keys())
+        result: dict[str, str] = {}
+        for item in items:
+            role = item.get("role", "")
+            instruction = item.get("instruction", "")
+            if role in valid_roles and instruction:
+                result[role] = instruction
+
+        return result
 
     def _plan_auto(
         self,

@@ -38,6 +38,7 @@ class AgentWorker:
         event_bus: EventBus,
         *,
         poll_interval: float = 1.0,
+        show_output: bool = False,
     ) -> None:
         """
         Args:
@@ -47,6 +48,7 @@ class AgentWorker:
             executor: 에이전트 실행기.
             event_bus: 이벤트 발행기.
             poll_interval: 태스크 폴링 간격 (초).
+            show_output: CLI stdout 실시간 표시 여부.
         """
         self.worker_id = worker_id
         self.lane = lane
@@ -54,6 +56,7 @@ class AgentWorker:
         self.executor = executor
         self.event_bus = event_bus
         self.poll_interval = poll_interval
+        self._show_output = show_output
         self._running = False
         self._task: asyncio.Task[None] | None = None
         self._tasks_completed = 0
@@ -131,6 +134,16 @@ class AgentWorker:
             try:
                 # Run executor and heartbeat concurrently
                 result = await self._run_with_heartbeat(task)
+
+                # show_cli_output: 실행 결과를 콘솔에 표시
+                if self._show_output and result.output:
+                    logger.info(
+                        "cli_output",
+                        worker_id=self.worker_id,
+                        task_id=task.id,
+                        output=result.output[:2000],
+                    )
+
                 await self.board.complete(task.id, result.output)
                 self._tasks_completed += 1
                 await self.event_bus.emit(
@@ -227,10 +240,33 @@ class AgentWorker:
 
         During long-running executor.run() calls, emit WORKER_HEARTBEAT
         every 10 seconds with elapsed_ms and timeout_ms.
+        CLI 출력을 라인 단위로 AGENT_OUTPUT 이벤트로 스트리밍한다.
         """
         from orchestrator.core.models.schemas import AgentResult
 
         enriched_prompt = await self._build_prompt(task)
+
+        # 스트리밍 콜백 주입
+        async def _on_cli_output(line: str, stream: str) -> None:
+            if not line.strip():
+                return  # 빈 라인 무시
+            await self.event_bus.emit(
+                OrchestratorEvent(
+                    type=EventType.AGENT_OUTPUT,
+                    task_id=task.pipeline_id,
+                    node=self.worker_id,
+                    data={
+                        "subtask_id": task.id,
+                        "line": line[:2000],
+                        "stream": stream,
+                        "lane": self.lane,
+                    },
+                )
+            )
+
+        if hasattr(self.executor, "_on_output"):
+            self.executor._on_output = _on_cli_output
+
         exec_task = asyncio.create_task(
             self.executor.run(
                 enriched_prompt,

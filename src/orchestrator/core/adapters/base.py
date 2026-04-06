@@ -6,6 +6,7 @@ import asyncio
 import os
 import time
 from abc import ABC, abstractmethod
+from collections.abc import Awaitable, Callable
 from subprocess import DEVNULL
 
 import structlog
@@ -16,6 +17,9 @@ from orchestrator.core.models.schemas import AdapterConfig, AgentResult
 logger = structlog.get_logger()
 
 _NPM_BIN = "/home/yoon/.local/npm/bin"
+
+# 콜백 타입: (line: str, stream: "stdout"|"stderr") -> None
+OutputCallback = Callable[[str, str], Awaitable[None]]
 
 
 class CLIAdapter(ABC):
@@ -98,6 +102,7 @@ class CLIAdapter(ABC):
         config: AdapterConfig,
         *,
         system_prompt: str | None = None,
+        on_output: OutputCallback | None = None,
     ) -> AgentResult:
         """CLI subprocess를 실행하여 결과를 반환한다.
 
@@ -105,6 +110,7 @@ class CLIAdapter(ABC):
             prompt: 에이전트에 전달할 프롬프트.
             config: 어댑터 설정.
             system_prompt: 시스템 프롬프트 (페르소나).
+            on_output: 라인별 출력 콜백. None이면 버퍼링 모드.
 
         Returns:
             실행 결과.
@@ -132,14 +138,20 @@ class CLIAdapter(ABC):
         )
 
         try:
-            stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                proc.communicate(),
-                timeout=config.timeout,
-            )
+            if on_output is not None:
+                stdout_str, stderr_str = await self._stream_output(
+                    proc, config.timeout, on_output,
+                )
+            else:
+                stdout_bytes, stderr_bytes = await asyncio.wait_for(
+                    proc.communicate(),
+                    timeout=config.timeout,
+                )
+                stdout_str = stdout_bytes.decode() if stdout_bytes else ""
+                stderr_str = stderr_bytes.decode() if stderr_bytes else ""
         except TimeoutError:
             proc.kill()
             await proc.wait()
-            elapsed_ms = int((time.monotonic() - start_time) * 1000)
             raise CLITimeoutError(
                 f"{self.cli_name} timed out after {config.timeout}s",
                 cli=self.cli_name,
@@ -147,9 +159,6 @@ class CLIAdapter(ABC):
             ) from None
 
         elapsed_ms = int((time.monotonic() - start_time) * 1000)
-        stdout_str = stdout_bytes.decode() if stdout_bytes else ""
-        stderr_str = stderr_bytes.decode() if stderr_bytes else ""
-
         result = self._parse_output(stdout_str, stderr_str)
         result = result.model_copy(
             update={
@@ -159,6 +168,46 @@ class CLIAdapter(ABC):
         )
         log.info("cli_completed", exit_code=proc.returncode, duration_ms=elapsed_ms)
         return result
+
+    async def _stream_output(
+        self,
+        proc: asyncio.subprocess.Process,
+        timeout: float,
+        on_output: OutputCallback,
+    ) -> tuple[str, str]:
+        """stdout/stderr를 라인 단위로 비동기 읽기.
+
+        각 라인 수신 시 on_output 콜백을 호출한다.
+        두 스트림을 asyncio.gather로 동시 읽어 데드락을 방지한다.
+
+        Returns:
+            (stdout_전체, stderr_전체) 튜플.
+        """
+        stdout_lines: list[str] = []
+        stderr_lines: list[str] = []
+
+        async def read_stream(
+            stream: asyncio.StreamReader,
+            target: list[str],
+            stream_name: str,
+        ) -> None:
+            async for raw_line in stream:
+                line = raw_line.decode(errors="replace").rstrip("\n\r")
+                target.append(line)
+                try:
+                    await on_output(line, stream_name)
+                except Exception:  # noqa: BLE001
+                    pass  # 콜백 실패가 스트리밍을 중단하면 안 됨
+
+        await asyncio.wait_for(
+            asyncio.gather(
+                read_stream(proc.stdout, stdout_lines, "stdout"),
+                read_stream(proc.stderr, stderr_lines, "stderr"),
+            ),
+            timeout=timeout,
+        )
+        await proc.wait()
+        return "\n".join(stdout_lines), "\n".join(stderr_lines)
 
     async def health_check(self) -> bool:
         """CLI 바이너리 존재 여부를 확인한다.

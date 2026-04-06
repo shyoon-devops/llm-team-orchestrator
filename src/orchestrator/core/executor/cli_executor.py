@@ -6,7 +6,7 @@ from typing import Any
 
 import structlog
 
-from orchestrator.core.adapters.base import CLIAdapter
+from orchestrator.core.adapters.base import CLIAdapter, OutputCallback
 from orchestrator.core.executor.base import AgentExecutor
 from orchestrator.core.models.schemas import AdapterConfig, AgentResult
 
@@ -43,6 +43,7 @@ class CLIAgentExecutor(AgentExecutor):
         self.adapter = adapter
         self.config = config
         self.persona_prompt = persona_prompt
+        self._on_output: OutputCallback | None = None
 
     async def run(
         self,
@@ -69,6 +70,7 @@ class CLIAgentExecutor(AgentExecutor):
             full_prompt,
             run_config,
             system_prompt=self.persona_prompt or None,
+            on_output=self._on_output,
         )
 
     async def health_check(self) -> bool:

@@ -80,6 +80,10 @@ class OrchestratorConfig(BaseSettings):
         default="claude-sonnet-4-20250514",
         description="TeamPlanner/Decomposer에서 사용하는 LLM 모델",
     )
+    planner_use_llm: bool = Field(
+        default=True,
+        description="TeamPlanner에서 LLM 기반 역할별 세부 지시 생성 활성화",
+    )
     synthesizer_model: str = Field(
         default="claude-sonnet-4-20250514",
         description="Synthesizer에서 사용하는 LLM 모델",

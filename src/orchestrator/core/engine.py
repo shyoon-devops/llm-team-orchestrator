@@ -77,6 +77,7 @@ class OrchestratorEngine:
         self._team_planner = TeamPlanner(
             model=self.config.planner_model,
             preset_registry=self._preset_registry,
+            use_llm=self.config.planner_use_llm,
         )
         self._checkpoint_store: CheckpointStore | None = None
         if self.config.checkpoint_enabled:
@@ -737,6 +738,7 @@ class OrchestratorEngine:
                     executor=executor,
                     event_bus=self._event_bus,
                     poll_interval=0.2,
+                    show_output=self.config.show_cli_output,
                 )
                 self._workers[worker_id] = worker
                 pipeline_workers.append(worker_id)
@@ -779,10 +781,16 @@ class OrchestratorEngine:
                     )
 
             # ── Phase 3.5: Quality Gate — reviewer 결과 평가 + 재작업 ────
-            from orchestrator.core.quality_gate import QualityGate
+            if self.config.quality_gate_enabled:
+                from orchestrator.core.quality_gate import QualityGate
 
-            quality_gate = QualityGate()
-            max_review_iterations = self.config.max_review_iterations
+                quality_gate = QualityGate(
+                    verdict_format=self.config.quality_gate_verdict_format,
+                )
+                max_review_iterations = self.config.max_review_iterations
+            else:
+                max_review_iterations = 0
+
             review_iteration = 0
 
             while review_iteration < max_review_iterations:
@@ -892,23 +900,40 @@ class OrchestratorEngine:
                                 path=branch_wt_path,
                             )
 
-                for branch in worktree_branches:
-                    try:
-                        merged = await self._worktree_manager.merge_to_target(
-                            branch, strategy=self.config.merge_strategy,
-                        )
-                        if merged:
-                            logger.info("worktree_merged", branch=branch)
-                            await self._event_bus.emit(
-                                OrchestratorEvent(
-                                    type=EventType.WORKTREE_MERGED,
-                                    task_id=task_id,
-                                    node="orchestrator",
-                                    data={"branch": branch},
-                                )
+                if self.config.auto_merge:
+                    for branch in worktree_branches:
+                        try:
+                            merged = await self._worktree_manager.merge_to_target(
+                                branch, strategy=self.config.merge_strategy,
                             )
-                        else:
-                            logger.warning("worktree_merge_failed", branch=branch)
+                            if merged:
+                                logger.info("worktree_merged", branch=branch)
+                                await self._event_bus.emit(
+                                    OrchestratorEvent(
+                                        type=EventType.WORKTREE_MERGED,
+                                        task_id=task_id,
+                                        node="orchestrator",
+                                        data={"branch": branch},
+                                    )
+                                )
+                            else:
+                                logger.warning("worktree_merge_failed", branch=branch)
+                                self._pipelines[task_id] = self._pipelines[
+                                    task_id
+                                ].model_copy(
+                                    update={
+                                        "error": (
+                                            self._pipelines[task_id].error
+                                            + f"merge conflict: {branch}; "
+                                        )
+                                    }
+                                )
+                        except Exception as merge_err:
+                            logger.warning(
+                                "worktree_merge_failed",
+                                branch=branch,
+                                error=str(merge_err),
+                            )
                             self._pipelines[task_id] = self._pipelines[
                                 task_id
                             ].model_copy(
@@ -919,22 +944,12 @@ class OrchestratorEngine:
                                     )
                                 }
                             )
-                    except Exception as merge_err:
-                        logger.warning(
-                            "worktree_merge_failed",
-                            branch=branch,
-                            error=str(merge_err),
-                        )
-                        self._pipelines[task_id] = self._pipelines[
-                            task_id
-                        ].model_copy(
-                            update={
-                                "error": (
-                                    self._pipelines[task_id].error
-                                    + f"merge conflict: {branch}; "
-                                )
-                            }
-                        )
+                else:
+                    logger.info(
+                        "auto_merge_disabled",
+                        task_id=task_id,
+                        branches=worktree_branches,
+                    )
 
             # 결과 수집: TaskBoard의 DONE 태스크 → WorkerResult
             done_tasks = self._board.get_results(task_id)
@@ -1131,7 +1146,7 @@ class OrchestratorEngine:
         finally:
             # Cleanup: 워커 정지, worktree 정리
             await self._stop_pipeline_workers(pipeline_workers)
-            if pipeline.target_repo:
+            if pipeline.target_repo and self.config.worktree_cleanup:
                 for branch in worktree_branches:
                     try:
                         await self._worktree_manager.cleanup(
@@ -1142,6 +1157,12 @@ class OrchestratorEngine:
                             "worktree_cleanup_failed",
                             branch=branch,
                         )
+            elif pipeline.target_repo and not self.config.worktree_cleanup:
+                logger.info(
+                    "worktree_cleanup_skipped",
+                    task_id=task_id,
+                    branches=worktree_branches,
+                )
             # Background task 정리
             self._bg_tasks.pop(task_id, None)
 

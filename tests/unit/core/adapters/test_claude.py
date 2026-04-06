@@ -14,12 +14,12 @@ def test_build_command_basic():
     config = AdapterConfig()
     cmd = adapter._build_command("hello world", config)
     assert "claude" in cmd
-    # --bare is NOT used (intentionally omitted for stability)
     assert "--bare" not in cmd
     assert "-p" in cmd
     assert "hello world" in cmd
     assert "--output-format" in cmd
-    assert "json" in cmd
+    assert "stream-json" in cmd
+    assert "--verbose" in cmd
     assert "--permission-mode" in cmd
     assert "bypassPermissions" in cmd
 
@@ -41,9 +41,10 @@ def test_build_command_with_model():
 
 
 def test_parse_output_json():
+    """stream-json JSONL: result 이벤트에서 출력을 추출한다."""
     adapter = ClaudeAdapter()
-    data = {"result": "JWT middleware implemented", "num_tokens": 100}
-    result = adapter._parse_output(json.dumps(data), "")
+    stdout = '{"type":"result","result":"JWT middleware implemented","is_error":false,"usage":{"output_tokens":100}}\n'
+    result = adapter._parse_output(stdout, "")
     assert "JWT middleware" in result.output
     assert result.tokens_used == 100
 
@@ -61,8 +62,8 @@ def test_parse_output_plain_text():
 
 
 def test_parse_output_is_error():
-    """Claude JSON with is_error=True should raise CLIExecutionError."""
+    """stream-json result with is_error=True should raise CLIExecutionError."""
     adapter = ClaudeAdapter()
-    data = {"result": "Something went wrong", "is_error": True}
+    stdout = '{"type":"result","result":"Something went wrong","is_error":true}\n'
     with pytest.raises(CLIExecutionError, match="Something went wrong"):
-        adapter._parse_output(json.dumps(data), "")
+        adapter._parse_output(stdout, "")

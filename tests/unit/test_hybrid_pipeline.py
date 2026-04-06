@@ -82,6 +82,7 @@ def mock_config() -> OrchestratorConfig:
         api_host="127.0.0.1",
         api_port=8888,
         preset_dirs=["tests/mocks/fixtures"],
+        planner_use_llm=False,
     )
 
 

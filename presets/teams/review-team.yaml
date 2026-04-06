@@ -16,11 +16,32 @@ agents:
 
 tasks:
   security-audit:
-    description: "코드베이스 보안 취약점 감사"
+    description: |
+      아래 사용자 요청과 관련된 코드베이스를 대상으로 보안 감사를 수행하라.
+
+      반드시 검토할 항목:
+      1. OWASP Top 10 취약점 (인젝션, XSS, 인증 우회 등)
+      2. 하드코딩된 시크릿, API 키, 패스워드
+      3. 입력 검증 누락
+      4. 권한 검사 누락
+      5. 의존성 취약점
+
+      결과를 심각도별로 분류하여 보고하라 (Critical / High / Medium / Low).
     agent: auditor
     depends_on: []
   code-review:
-    description: "코드 품질, 가독성, 컨벤션 리뷰"
+    description: |
+      아래 사용자 요청과 관련된 코드를 품질 관점에서 리뷰하라.
+
+      리뷰 기준:
+      1. 코드 가독성 및 구조
+      2. 네이밍 컨벤션 준수
+      3. 에러 처리 적절성
+      4. 중복 코드, 불필요한 복잡성
+      5. 테스트 커버리지 여부
+
+      반드시 첫 줄에 JSON verdict를 출력하라:
+      {"verdict": "approve" 또는 "reject", "feedback": "구체적 피드백"}
     agent: reviewer
     depends_on: []
 
