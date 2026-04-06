@@ -546,3 +546,49 @@ max_review_iterations: 2  # 최대 2번 재작업 후 강제 완료
 ```
 
 기본값: 1 (재작업 없이 바로 완료 — 현재 동작과 동일)
+
+---
+
+## 13. P10: 구조화된 리뷰 verdict + 큐-컨슘 검증
+
+### 연구 결론 (Part 18)
+
+**오케스트레이터가 판단하고 할당한다** (Option B).
+- 에이전트는 결과만 반환, TaskBoard를 직접 조작하지 않음
+- 오케스트레이터(engine)가 QualityGate로 결과 평가 → 후속 태스크 생성
+- 에이전트 간 직접 통신 없음 (느슨한 결합 유지)
+
+### 개선: 구조화된 verdict
+
+reviewer 프리셋에 JSON verdict 출력 지시 추가:
+
+```yaml
+# reviewer.yaml constraints 추가:
+- "리뷰 결과를 반드시 JSON verdict로 시작한다: {\"verdict\": \"approve\" | \"reject\", \"feedback\": \"...\"}"
+```
+
+QualityGate가 JSON verdict를 우선 파싱, 실패 시 키워드 fallback:
+
+```python
+def evaluate(self, result, role):
+    # 1차: JSON verdict 파싱
+    try:
+        verdict_json = json.loads(result.split('\n')[0])
+        return QualityVerdict(
+            approved=(verdict_json["verdict"] == "approve"),
+            feedback=verdict_json.get("feedback", ""),
+        )
+    except (json.JSONDecodeError, KeyError):
+        pass
+    # 2차: 키워드 fallback
+    ...
+```
+
+### 큐-컨슘 검증 항목
+
+| 검증 | 방법 |
+|------|------|
+| worker가 board.claim()으로 소비 | grep "board.claim" worker.py |
+| 독립 폴링 루프 | worker._run_loop while self._running |
+| depends_on=[]이면 병렬 | review-team 2 agent 동시 실행 확인 |
+| 워커 추가/제거 코드 변경 없이 | lanes_needed set에서 동적 생성 |

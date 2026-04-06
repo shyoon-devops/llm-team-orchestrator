@@ -362,3 +362,16 @@ C-CLI-01: Claude CLI 3초 타임아웃 설정 → retry 3회 → codex fallback
 **교차 검증:**
 - v2-spec §12 QualityGate ↔ functions.md (미추가 — 구현 시 추가) | ⚠️
 - TaskBoard depends_on [] → 병렬 ↔ board.py _try_promote | ✅
+
+---
+
+## 시나리오 15: v2 iter9 — 구조화된 verdict + 큐-컨슘
+
+| Step | 검증 |
+|------|------|
+| reviewer 결과 첫 줄: `{"verdict": "reject", "feedback": "..."}` | ✅ |
+| QualityGate: JSON 파싱 → approved=False | ✅ |
+| 오케스트레이터가 rework+re-review 태스크 생성 | ✅ |
+| implementer 워커가 rework 태스크를 board.claim()으로 소비 | ✅ |
+| reviewer 워커가 re-review 태스크를 claim()으로 소비 | ✅ |
+| 큐-컨슘: 워커가 TaskBoard만 의존, 오케스트레이터와 직접 통신 없음 | ✅ |
