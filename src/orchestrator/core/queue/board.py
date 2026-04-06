@@ -173,6 +173,29 @@ class TaskBoard:
                     }
                 )
                 logger.warning("task_failed", task_id=task_id, error=error)
+                # Cascade failure: 의존자도 FAILED로 전이
+                self._cascade_failure(task_id)
+
+    def _cascade_failure(self, failed_id: str) -> None:
+        """failed 태스크에 의존하는 BACKLOG 태스크를 재귀적으로 FAILED 처리."""
+        for tid, task in self._tasks.items():
+            if (
+                failed_id in task.depends_on
+                and task.state == TaskState.BACKLOG
+            ):
+                self._tasks[tid] = task.model_copy(
+                    update={
+                        "state": TaskState.FAILED,
+                        "error": f"Dependency failed: {failed_id}",
+                        "completed_at": datetime.utcnow(),
+                    }
+                )
+                logger.warning(
+                    "task_cascade_failed",
+                    task_id=tid,
+                    dependency=failed_id,
+                )
+                self._cascade_failure(tid)
 
     def _check_dependencies(self) -> None:
         """BACKLOG 태스크의 의존성을 확인하고 충족 시 TODO로 전이한다."""
