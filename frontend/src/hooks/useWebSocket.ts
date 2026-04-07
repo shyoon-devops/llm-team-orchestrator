@@ -2,10 +2,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { WSEvent } from "../types";
 
 const MAX_RECONNECT_DELAY = 30_000;
-const MAX_EVENTS = 200;
+const MAX_EVENTS = 500;
+const MAX_OUTPUT_EVENTS = 1000;
 
 interface UseWebSocketReturn {
   events: WSEvent[];
+  outputEvents: WSEvent[];
   connected: boolean;
   clearEvents: () => void;
 }
@@ -22,6 +24,7 @@ interface UseWebSocketReturn {
  */
 export function useWebSocket(url: string): UseWebSocketReturn {
   const [events, setEvents] = useState<WSEvent[]>([]);
+  const [outputEvents, setOutputEvents] = useState<WSEvent[]>([]);
   const [connected, setConnected] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const attemptRef = useRef(0);
@@ -29,6 +32,7 @@ export function useWebSocket(url: string): UseWebSocketReturn {
 
   const clearEvents = useCallback(() => {
     setEvents([]);
+    setOutputEvents([]);
   }, []);
 
   useEffect(() => {
@@ -50,6 +54,13 @@ export function useWebSocket(url: string): UseWebSocketReturn {
         if (!mountedRef.current) return;
         try {
           const data = JSON.parse(event.data) as WSEvent;
+          // agent.output은 별도 버퍼에 저장 (LiveOutput용)
+          if (data.type === "agent.output") {
+            setOutputEvents((prev) => {
+              const next = [...prev, data];
+              return next.length > MAX_OUTPUT_EVENTS ? next.slice(-MAX_OUTPUT_EVENTS) : next;
+            });
+          }
           setEvents((prev) => {
             const next = [...prev, data];
             return next.length > MAX_EVENTS ? next.slice(-MAX_EVENTS) : next;
@@ -89,5 +100,5 @@ export function useWebSocket(url: string): UseWebSocketReturn {
     };
   }, [url]);
 
-  return { events, connected, clearEvents };
+  return { events, outputEvents, connected, clearEvents };
 }

@@ -193,15 +193,18 @@ function parseStreamLine(rawLine: string): OutputLine | null {
 export function LiveOutput({ events, taskId, subtaskId }: LiveOutputProps) {
   const [lines, setLines] = useState<OutputLine[]>([]);
   const bottomRef = useRef<HTMLDivElement>(null);
-  const prevCountRef = useRef(0);
+  const processedRef = useRef(new Set<string>());
 
   useEffect(() => {
-    const newEvents = events.slice(prevCountRef.current);
-    prevCountRef.current = events.length;
-
     const newLines: OutputLine[] = [];
-    for (const event of newEvents) {
+    for (const event of events) {
       if (event.type !== "agent.output") continue;
+
+      // 중복 방지: timestamp+line 해시로 이미 처리한 이벤트 스킵
+      const eventKey = `${event.timestamp}-${(event.payload || {}).subtask_id || ""}-${((event.payload || {}).line || "").slice(0, 50)}`;
+      if (processedRef.current.has(eventKey)) continue;
+      processedRef.current.add(eventKey);
+
       const p = event.payload || {};
       if (taskId && p.pipeline_id !== taskId) continue;
       if (subtaskId && p.subtask_id !== subtaskId) continue;
@@ -222,6 +225,12 @@ export function LiveOutput({ events, taskId, subtaskId }: LiveOutputProps) {
         const next = [...prev, ...newLines];
         return next.length > 500 ? next.slice(-500) : next;
       });
+    }
+
+    // processedRef 크기 제한
+    if (processedRef.current.size > 2000) {
+      const arr = Array.from(processedRef.current);
+      processedRef.current = new Set(arr.slice(-1000));
     }
   }, [events, taskId, subtaskId]);
 
