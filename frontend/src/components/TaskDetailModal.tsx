@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { extractTitle } from "../utils";
 
 interface TaskDetail {
   id: string;
@@ -88,7 +89,7 @@ export function TaskDetailModal({ taskId, onClose }: TaskDetailModalProps) {
             <div style={{ fontSize: 13 }}>
               {/* Title & status */}
               <div style={{ marginBottom: 12 }}>
-                <h3 style={{ fontSize: 16, marginBottom: 4 }}>{detail.title}</h3>
+                <h3 style={{ fontSize: 16, marginBottom: 4 }}>{extractTitle(detail.title)}</h3>
                 <span className={`status-badge ${detail.state}`}>{detail.state}</span>
                 <span style={{ fontSize: 11, color: "var(--text-muted)", marginLeft: 8 }}>
                   {detail.id}

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import type { WSEvent } from "../types";
 
 interface OutputLine {
@@ -52,7 +52,8 @@ function formatClaudeEvent(ev: Record<string, unknown>): OutputLine | null {
     const content = (msg?.content ?? []) as Array<Record<string, unknown>>;
     for (const c of content) {
       if (c.type === "tool_result") {
-        const txt = String(c.content || "").slice(0, 120);
+        const raw = String(c.content || "");
+        const txt = tryPrettyJson(raw.slice(0, 500));
         return { icon: "✅", label: "결과", text: txt, color: "#6fdc6f", lane: "", timestamp: "" };
       }
     }
@@ -90,7 +91,8 @@ function formatCodexEvent(ev: Record<string, unknown>): OutputLine | null {
       if (t === "item.started") {
         return { icon: "⚡", label: "실행", text: `$ ${cmd}`, color: "#ffd700", lane: "", timestamp: "" };
       }
-      const output = String(item.aggregated_output || "").trim().slice(0, 120);
+      const rawOutput = String(item.aggregated_output || "").trim();
+      const output = tryPrettyJson(rawOutput.slice(0, 500));
       const code = item.exit_code as number;
       const statusIcon = code === 0 ? "✅" : "❌";
       return { icon: statusIcon, label: `exit ${code}`, text: output || cmd, color: code === 0 ? "#6fdc6f" : "#ff6b6b", lane: "", timestamp: "" };
@@ -151,6 +153,15 @@ function formatGeminiEvent(ev: Record<string, unknown>): OutputLine | null {
   return null;
 }
 
+function tryPrettyJson(text: string): string {
+  if (text.startsWith("{") || text.startsWith("[")) {
+    try {
+      return JSON.stringify(JSON.parse(text), null, 2);
+    } catch { /* not valid JSON */ }
+  }
+  return text;
+}
+
 function parseStreamLine(rawLine: string): OutputLine | null {
   let ev: Record<string, unknown>;
   try {
@@ -184,16 +195,24 @@ function parseStreamLine(rawLine: string): OutputLine | null {
     return formatGeminiEvent(ev);
   }
 
-  // 알 수 없는 JSON 이벤트
-  return { icon: "❓", label: t, text: rawLine.slice(0, 100), color: "#666", lane: "", timestamp: "" };
+  // 알 수 없는 JSON 이벤트 — pretty-print
+  return { icon: "📋", label: t || "json", text: JSON.stringify(ev, null, 2), color: "#8b949e", lane: "", timestamp: "" };
 }
 
 /* ── 컴포넌트 ── */
 
 export function LiveOutput({ events, taskId, subtaskId }: LiveOutputProps) {
   const [lines, setLines] = useState<OutputLine[]>([]);
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const processedRef = useRef(new Set<string>());
+
+  const scrollToBottom = useCallback(() => {
+    requestAnimationFrame(() => {
+      if (containerRef.current) {
+        containerRef.current.scrollTop = containerRef.current.scrollHeight;
+      }
+    });
+  }, []);
 
   useEffect(() => {
     const newLines: OutputLine[] = [];
@@ -225,6 +244,7 @@ export function LiveOutput({ events, taskId, subtaskId }: LiveOutputProps) {
         const next = [...prev, ...newLines];
         return next.length > 500 ? next.slice(-500) : next;
       });
+      scrollToBottom();
     }
 
     // processedRef 크기 제한
@@ -232,11 +252,7 @@ export function LiveOutput({ events, taskId, subtaskId }: LiveOutputProps) {
       const arr = Array.from(processedRef.current);
       processedRef.current = new Set(arr.slice(-1000));
     }
-  }, [events, taskId, subtaskId]);
-
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [lines]);
+  }, [events, taskId, subtaskId, scrollToBottom]);
 
   return (
     <div className="panel">
@@ -244,67 +260,77 @@ export function LiveOutput({ events, taskId, subtaskId }: LiveOutputProps) {
         <span>Live Output ({lines.length})</span>
         <button
           className="btn btn-small"
-          onClick={() => { setLines([]); prevCountRef.current = 0; }}
+          onClick={() => { setLines([]); processedRef.current = new Set(); }}
         >
           Clear
         </button>
       </div>
       <div className="panel-body">
-        <div style={{
-          backgroundColor: "#0d1117",
-          color: "#e6edf3",
-          fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
-          fontSize: "12px",
-          padding: "8px 12px",
-          borderRadius: "6px",
-          maxHeight: "400px",
-          overflowY: "auto",
-          lineHeight: 1.6,
-        }}>
-          {lines.length === 0 ? (
-            <div style={{ color: "#484f58" }}>Waiting for agent output...</div>
-          ) : (
-            lines.map((l, i) => (
-              <div key={i} style={{
-                display: "flex",
-                gap: "6px",
-                padding: "1px 0",
-                borderBottom: "1px solid #21262d",
-                alignItems: "baseline",
-              }}>
-                {l.lane && (
-                  <span style={{
-                    color: "#8b949e",
-                    fontSize: "10px",
-                    minWidth: "70px",
-                    flexShrink: 0,
-                  }}>
-                    {l.lane}
-                  </span>
-                )}
-                <span style={{ flexShrink: 0 }}>{l.icon}</span>
-                {l.label && (
-                  <span style={{
-                    color: "#8b949e",
-                    fontSize: "11px",
-                    minWidth: "40px",
-                    flexShrink: 0,
-                  }}>
-                    {l.label}
-                  </span>
-                )}
-                <span style={{
-                  color: l.color,
-                  wordBreak: "break-all",
-                  whiteSpace: "pre-wrap",
+        {!taskId ? (
+          <div style={{ color: "#484f58", fontSize: 12, padding: "12px" }}>
+            Select a pipeline to see live output
+          </div>
+        ) : (
+          <div
+            ref={containerRef}
+            style={{
+              backgroundColor: "#0d1117",
+              color: "#e6edf3",
+              fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
+              fontSize: "12px",
+              padding: "8px 12px",
+              borderRadius: "6px",
+              maxHeight: "400px",
+              overflowY: "auto",
+              lineHeight: 1.6,
+            }}
+          >
+            {lines.length === 0 ? (
+              <div style={{ color: "#484f58" }}>Waiting for agent output...</div>
+            ) : (
+              lines.map((l, i) => (
+                <div key={i} style={{
+                  display: "flex",
+                  gap: "6px",
+                  padding: "1px 0",
+                  borderBottom: "1px solid #21262d",
+                  alignItems: "baseline",
                 }}>
-                  {l.text}
-                </span>
-              </div>
-            ))
-          )}
-          <div ref={bottomRef} />
-        </div>
+                  {l.lane && (
+                    <span style={{
+                      color: "#8b949e",
+                      fontSize: "10px",
+                      minWidth: "70px",
+                      flexShrink: 0,
+                    }}>
+                      {l.lane}
+                    </span>
+                  )}
+                  <span style={{ flexShrink: 0 }}>{l.icon}</span>
+                  {l.label && (
+                    <span style={{
+                      color: "#8b949e",
+                      fontSize: "11px",
+                      minWidth: "40px",
+                      flexShrink: 0,
+                    }}>
+                      {l.label}
+                    </span>
+                  )}
+                  <span style={{
+                    color: l.color,
+                    wordBreak: "break-all",
+                    whiteSpace: "pre-wrap",
+                    fontFamily: l.text.includes("\n") ? "'JetBrains Mono', monospace" : "inherit",
+                    fontSize: l.text.includes("\n") ? "11px" : "12px",
+                  }}>
+                    {l.text}
+                  </span>
+                </div>
+              ))
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

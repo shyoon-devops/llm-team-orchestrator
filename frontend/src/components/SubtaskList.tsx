@@ -1,4 +1,5 @@
 import type { TaskState } from "../types";
+import { extractTitle } from "../utils";
 
 export interface SubtaskInfo {
   id: string;
@@ -60,7 +61,7 @@ export function SubtaskList({ subtasks, onSelect, selectedId }: SubtaskListProps
             }}
           >
             <td style={{ fontWeight: 600 }}>{st.assigned_preset || "default"}</td>
-            <td>{(st.description.split("\n")[0] || "").slice(0, 80) + (st.description.length > 80 ? "..." : "")}</td>
+            <td>{extractTitle(st.description)}</td>
             <td>
               <span className={`status-badge ${st.state}`}>{st.state}</span>
             </td>

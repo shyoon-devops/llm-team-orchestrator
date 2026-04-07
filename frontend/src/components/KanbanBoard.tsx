@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { BoardState, TaskState } from "../types";
+import { extractTitle } from "../utils";
 import { TaskDetailModal } from "./TaskDetailModal";
 
 interface KanbanBoardProps {
@@ -108,7 +109,7 @@ export function KanbanBoard({ board }: KanbanBoardProps) {
                 >
                   <div className="kanban-card-title">
                     {task.state === "in_progress" && <span className="kanban-card-spinner" style={{ marginRight: 6 }} />}
-                    {(task.title.split("\n")[0] || "").slice(0, 50) + (task.title.length > 50 ? "..." : "")}
+                    {extractTitle(task.title)}
                   </div>
                   <div className="kanban-card-meta">
                     {task.lane}
