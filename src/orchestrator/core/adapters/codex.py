@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import json
+import shutil
+import tempfile
+from pathlib import Path
 
 import structlog
 
@@ -11,6 +14,20 @@ from orchestrator.core.errors.exceptions import CLIExecutionError, CLIParseError
 from orchestrator.core.models.schemas import AdapterConfig, AgentResult
 
 logger = structlog.get_logger()
+
+
+def _toml_value(val: object) -> str:
+    """Python 값을 TOML 리터럴 문자열로 변환한다."""
+    if isinstance(val, str):
+        return json.dumps(val)  # JSON 문자열 이스케이프는 TOML과 호환
+    if isinstance(val, bool):
+        return "true" if val else "false"
+    if isinstance(val, int):
+        return str(val)
+    if isinstance(val, list):
+        items = ", ".join(json.dumps(item) if isinstance(item, str) else str(item) for item in val)
+        return f"[{items}]"
+    return json.dumps(str(val))
 
 
 class CodexAdapter(CLIAdapter):
@@ -25,6 +42,75 @@ class CodexAdapter(CLIAdapter):
 
     def _get_api_key_env_var(self) -> str:
         return "OPENAI_API_KEY"
+
+    def _prepare_mcp_workspace(
+        self,
+        config: AdapterConfig,
+    ) -> tuple[str | None, dict[str, str]]:
+        """Codex는 ~/.codex 복사본 + config.toml MCP 교체."""
+        if not config.mcp_servers:
+            return None, {}
+
+        import tomllib
+
+        codex_home = Path.home() / ".codex"
+        if not codex_home.exists():
+            return None, {}
+
+        # 복사본 생성
+        workspace = tempfile.mkdtemp(prefix="codex-mcp-")
+        codex_copy = Path(workspace) / ".codex-home"
+        shutil.copytree(codex_home, codex_copy)
+
+        # config.toml에서 기존 mcp_servers 제거 + 새 MCP 추가
+        config_path = codex_copy / "config.toml"
+        if config_path.exists():
+            cfg = tomllib.loads(config_path.read_text())
+        else:
+            cfg = {}
+
+        # 기존 mcp_servers 섹션 제거
+        cfg.pop("mcp_servers", None)
+
+        # 새 MCP 서버 설정 추가 후 TOML 직렬화
+        mcp_section: dict[str, dict[str, object]] = {}
+        for name, sd in config.mcp_servers.items():
+            mcp_section[name] = {
+                "command": sd.command,
+                "args": sd.args,
+            }
+        cfg["mcp_servers"] = mcp_section
+
+        config_path.write_text(self._serialize_toml(cfg))
+
+        return None, {"CODEX_HOME": str(codex_copy)}
+
+    @staticmethod
+    def _serialize_toml(data: dict[str, object]) -> str:
+        """간단한 TOML 직렬화 (codex config.toml용).
+
+        중첩 테이블과 기본 타입(str, int, bool, list[str])을 지원한다.
+        """
+        lines: list[str] = []
+        # 먼저 최상위 스칼라 키 출력
+        for key, val in data.items():
+            if not isinstance(val, dict):
+                lines.append(f"{key} = {_toml_value(val)}")
+        # 그 다음 테이블 섹션 출력
+        for key, val in data.items():
+            if isinstance(val, dict):
+                for sub_key, sub_val in val.items():
+                    if isinstance(sub_val, dict):
+                        lines.append(f"\n[{key}.{sub_key}]")
+                        for k, v in sub_val.items():
+                            lines.append(f"{k} = {_toml_value(v)}")
+                    else:
+                        if not any(
+                            ln.strip() == f"[{key}]" for ln in lines
+                        ):
+                            lines.append(f"\n[{key}]")
+                        lines.append(f"{sub_key} = {_toml_value(sub_val)}")
+        return "\n".join(lines) + "\n"
 
     def _build_command(
         self,

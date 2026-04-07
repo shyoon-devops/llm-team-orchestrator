@@ -1,1 +1,0 @@
-{"mcpServers":{"grafana-mock":{"command":"uv","args":["--directory","/home/yoon/repository/llm-team-orchestrator","run","python","tools/mcp-servers/grafana_mcp.py"]}}}

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import tempfile
+from pathlib import Path
 
 import structlog
 
@@ -26,6 +28,35 @@ class GeminiAdapter(CLIAdapter):
     def _get_api_key_env_var(self) -> str:
         return "GEMINI_API_KEY"
 
+    def _prepare_mcp_workspace(
+        self,
+        config: AdapterConfig,
+    ) -> tuple[str | None, dict[str, str]]:
+        """Gemini는 cwd/.gemini/settings.json에 MCP 설정을 배치해야 한다."""
+        if not config.mcp_servers:
+            return None, {}
+
+        # tempdir 생성 + .gemini/settings.json 배치
+        workspace = tempfile.mkdtemp(prefix="gemini-mcp-")
+        gemini_dir = Path(workspace) / ".gemini"
+        gemini_dir.mkdir()
+
+        servers: dict[str, dict[str, object]] = {}
+        for name, sd in config.mcp_servers.items():
+            entry: dict[str, object] = {
+                "command": sd.command,
+                "args": sd.args,
+                "trust": True,
+            }
+            if sd.env:
+                entry["env"] = sd.env
+            servers[name] = entry
+
+        (gemini_dir / "settings.json").write_text(
+            json.dumps({"mcpServers": servers})
+        )
+        return workspace, {}
+
     def _build_command(
         self,
         prompt: str,
@@ -48,6 +79,12 @@ class GeminiAdapter(CLIAdapter):
             "--sandbox=none",
             "--yolo",
         ]
+        # MCP 필터: 등록된 서버만 허용
+        if config.mcp_servers:
+            cmd.extend([
+                "--allowed-mcp-server-names",
+                *config.mcp_servers.keys(),
+            ])
         if config.model:
             cmd.extend(["--model", config.model])
         cmd.extend(config.extra_args)

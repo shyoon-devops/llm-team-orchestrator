@@ -89,6 +89,18 @@ class CLIAdapter(ABC):
         env.update(config.env)
         return env
 
+    def _prepare_mcp_workspace(
+        self,
+        config: AdapterConfig,
+    ) -> tuple[str | None, dict[str, str]]:
+        """MCP 격리를 위한 workspace/env를 준비한다.
+
+        Returns:
+            (working_dir 오버라이드 or None, 추가 env vars)
+            기본 구현은 (None, {}) — 서브클래스에서 오버라이드.
+        """
+        return None, {}
+
     @abstractmethod
     def _get_api_key_env_var(self) -> str:
         """API 키 환경 변수 이름을 반환한다.
@@ -122,9 +134,13 @@ class CLIAdapter(ABC):
             CLIExecutionError: 프로세스 비정상 종료.
             CLIParseError: 출력 파싱 실패.
         """
+        # MCP workspace 준비 (CLI별 구현)
+        mcp_cwd, mcp_env = self._prepare_mcp_workspace(config)
+
         cmd = self._build_command(prompt, config, system_prompt=system_prompt)
         env = self._build_env(config)
-        cwd = config.working_dir
+        env.update(mcp_env)  # MCP용 추가 env 병합
+        cwd = mcp_cwd or config.working_dir  # MCP workspace 우선
 
         log = logger.bind(cli=self.cli_name, cmd=cmd[:3])
         log.info("cli_executing")

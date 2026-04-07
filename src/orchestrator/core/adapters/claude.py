@@ -9,6 +9,7 @@ import structlog
 from orchestrator.core.adapters.base import CLIAdapter
 from orchestrator.core.errors.exceptions import CLIExecutionError, CLIParseError
 from orchestrator.core.models.schemas import AdapterConfig, AgentResult
+from orchestrator.core.presets.models import MCPServerDef
 
 logger = structlog.get_logger()
 
@@ -52,12 +53,32 @@ class ClaudeAdapter(CLIAdapter):
             "--permission-mode",
             "bypassPermissions",
         ]
+
+        # MCP 주입: --mcp-config + --strict-mcp-config
+        mcp_json = self._build_mcp_config_json(config.mcp_servers)
+        cmd.extend(["--mcp-config", mcp_json, "--strict-mcp-config"])
+
         if system_prompt:
             cmd.extend(["--system-prompt", system_prompt])
         if config.model:
             cmd.extend(["--model", config.model])
         cmd.extend(config.extra_args)
         return cmd
+
+    @staticmethod
+    def _build_mcp_config_json(
+        mcp_servers: dict[str, MCPServerDef],
+    ) -> str:
+        """MCPServerDef → Claude --mcp-config용 JSON 문자열."""
+        servers: dict[str, dict[str, object]] = {}
+        for name, server_def in mcp_servers.items():
+            entry: dict[str, object] = {"command": server_def.command}
+            if server_def.args:
+                entry["args"] = server_def.args
+            if server_def.env:
+                entry["env"] = server_def.env
+            servers[name] = entry
+        return json.dumps({"mcpServers": servers})
 
     def _parse_output(self, stdout: str, stderr: str) -> AgentResult:
         """Claude stream-json JSONL 출력을 파싱한다.

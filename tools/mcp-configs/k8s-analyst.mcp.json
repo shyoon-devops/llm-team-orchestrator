@@ -1,1 +1,0 @@
-{"mcpServers":{"k8s-mock":{"command":"uv","args":["--directory","/home/yoon/repository/llm-team-orchestrator","run","python","tools/mcp-servers/k8s_mcp.py"]}}}

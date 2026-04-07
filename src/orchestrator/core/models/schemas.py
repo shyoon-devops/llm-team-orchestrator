@@ -6,6 +6,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field, SecretStr
 
+from orchestrator.core.presets.models import MCPServerDef
+
 
 class AgentResult(BaseModel):
     """에이전트 실행 결과.
@@ -92,6 +94,11 @@ class AdapterConfig(BaseModel):
     working_dir: str | None = Field(
         default=None,
         description="CLI 실행 작업 디렉토리 경로. None이면 worktree 경로 사용",
+    )
+    mcp_servers: dict[str, MCPServerDef] = Field(
+        default_factory=dict,
+        description="에이전트에 노출할 MCP 서버 목록. "
+        "비어있으면 MCP 도구 없음 (격리).",
     )
 
     model_config = {
