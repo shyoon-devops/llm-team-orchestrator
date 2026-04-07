@@ -198,6 +198,10 @@ class Pipeline(BaseModel):
         default="",
         description="Synthesizer가 생성한 종합 보고서",
     )
+    workspace_paths: dict[str, str] = Field(
+        default_factory=dict,
+        description="에이전트별 워크스페이스 경로 (lane -> 디렉토리). target_repo 없을 때 tempdir 위치 확인용",
+    )
     merged: bool = Field(
         default=False,
         description="worktree 변경사항이 target branch에 merge되었는지 여부",

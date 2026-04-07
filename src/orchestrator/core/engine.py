@@ -1067,6 +1067,7 @@ class OrchestratorEngine:
                     update={
                         "status": PipelineStatus.FAILED,
                         "results": worker_results,
+                        "workspace_paths": worktree_paths,
                         "error": f"All {fail_count} subtasks failed",
                         "completed_at": datetime.utcnow(),
                     }
@@ -1092,6 +1093,7 @@ class OrchestratorEngine:
                     update={
                         "status": PipelineStatus.FAILED,
                         "results": worker_results,
+                        "workspace_paths": worktree_paths,
                         "error": f"{fail_count}/{total_count} subtasks failed (>= 50%)",
                         "completed_at": datetime.utcnow(),
                     }
@@ -1167,6 +1169,7 @@ class OrchestratorEngine:
                     "results": worker_results,
                     "synthesis": synthesis,
                     "merged": merged,
+                    "workspace_paths": worktree_paths,
                     "completed_at": datetime.utcnow(),
                 }
             )
@@ -1203,6 +1206,7 @@ class OrchestratorEngine:
             self._pipelines[task_id] = self._pipelines[task_id].model_copy(
                 update={
                     "status": PipelineStatus.FAILED,
+                    "workspace_paths": worktree_paths,
                     "error": str(exc),
                     "completed_at": datetime.utcnow(),
                 }
@@ -1239,6 +1243,13 @@ class OrchestratorEngine:
                     "worktree_cleanup_skipped",
                     task_id=task_id,
                     branches=worktree_branches,
+                )
+            elif not pipeline.target_repo and worktree_paths:
+                # target_repo가 없으면 tempdir를 정리하지 않음 — 아티팩트 보존
+                logger.info(
+                    "tempdir_preserved",
+                    task_id=task_id,
+                    workspace_paths=worktree_paths,
                 )
             # Background task 정리
             self._bg_tasks.pop(task_id, None)

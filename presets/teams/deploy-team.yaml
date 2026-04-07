@@ -1,0 +1,44 @@
+# presets/teams/deploy-team.yaml
+name: deploy-team
+description: "배포 팀 — 인프라 확인 → 배포 실행 → 검증 → Slack 알림"
+
+agents:
+  infra:
+    preset: infra-engineer
+  deployer:
+    preset: deploy-operator
+  notifier:
+    preset: slack-notifier
+
+tasks:
+  pre-check:
+    description: |
+      배포 전 인프라 상태를 점검하라.
+      list_pods, get_node_status 도구로 현재 클러스터 상태를 확인한다.
+      배포 가능 여부를 판단하고 리스크를 식별한다.
+    agent: infra
+    depends_on: []
+
+  deploy:
+    description: |
+      인프라 점검 결과를 확인하고 배포를 실행하라.
+      배포 전략(카나리/롤링), 배포 대상, 예상 소요 시간을 명시하라.
+    agent: deployer
+    depends_on: [pre-check]
+
+  post-verify:
+    description: |
+      배포 후 서비스 상태를 검증하라.
+      list_pods로 Pod 상태를 확인하고, get_service_metrics로 에러율을 확인한다.
+    agent: infra
+    depends_on: [deploy]
+
+  notify:
+    description: |
+      배포 결과를 Slack에 알림하라.
+      배포 버전, 소요 시간, 검증 결과를 포함한 메시지를 작성한다.
+    agent: notifier
+    depends_on: [post-verify]
+
+workflow: sequential
+synthesis_strategy: structured
