@@ -426,6 +426,28 @@ class OrchestratorEngine:
         """
         self._preset_registry.save_team_preset(preset, overwrite=overwrite)
 
+    def delete_agent_preset(self, name: str) -> None:
+        """에이전트 프리셋을 삭제한다.
+
+        Args:
+            name: 삭제할 프리셋 이름.
+
+        Raises:
+            KeyError: 프리셋이 존재하지 않는 경우.
+        """
+        self._preset_registry.delete_agent_preset(name)
+
+    def delete_team_preset(self, name: str) -> None:
+        """팀 프리셋을 삭제한다.
+
+        Args:
+            name: 삭제할 프리셋 이름.
+
+        Raises:
+            KeyError: 프리셋이 존재하지 않는 경우.
+        """
+        self._preset_registry.delete_team_preset(name)
+
     def get_board_state(self) -> dict[str, Any]:
         """칸반 보드의 현재 상태를 반환한다."""
         return self._board.get_board_state()

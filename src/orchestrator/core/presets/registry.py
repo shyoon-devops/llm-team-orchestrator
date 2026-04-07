@@ -242,6 +242,48 @@ class PresetRegistry:
             )
         logger.debug("team_preset_written", path=str(target_path))
 
+    def delete_agent_preset(self, name: str) -> None:
+        """에이전트 프리셋을 레지스트리와 YAML 파일에서 삭제한다.
+
+        Args:
+            name: 삭제할 프리셋 이름.
+
+        Raises:
+            KeyError: 프리셋이 존재하지 않는 경우.
+        """
+        if name not in self._agent_presets:
+            msg = f"Agent preset not found: {name}"
+            raise KeyError(msg)
+        del self._agent_presets[name]
+        # YAML 파일 삭제
+        for preset_dir_str in self._preset_dirs:
+            yaml_path = Path(preset_dir_str) / "agents" / f"{name}.yaml"
+            if yaml_path.exists():
+                yaml_path.unlink()
+                logger.debug("agent_preset_file_deleted", path=str(yaml_path))
+        logger.info("agent_preset_deleted", name=name)
+
+    def delete_team_preset(self, name: str) -> None:
+        """팀 프리셋을 레지스트리와 YAML 파일에서 삭제한다.
+
+        Args:
+            name: 삭제할 프리셋 이름.
+
+        Raises:
+            KeyError: 프리셋이 존재하지 않는 경우.
+        """
+        if name not in self._team_presets:
+            msg = f"Team preset not found: {name}"
+            raise KeyError(msg)
+        del self._team_presets[name]
+        # YAML 파일 삭제
+        for preset_dir_str in self._preset_dirs:
+            yaml_path = Path(preset_dir_str) / "teams" / f"{name}.yaml"
+            if yaml_path.exists():
+                yaml_path.unlink()
+                logger.debug("team_preset_file_deleted", path=str(yaml_path))
+        logger.info("team_preset_deleted", name=name)
+
     def merge_preset_with_overrides(
         self,
         preset_name: str,

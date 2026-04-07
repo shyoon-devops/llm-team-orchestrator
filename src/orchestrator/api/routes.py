@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from orchestrator.api.deps import get_engine
+from orchestrator.core.config.schema import OrchestratorConfig
 from orchestrator.core.presets.models import (
     AgentLimits,
     AgentPreset,
@@ -462,6 +463,43 @@ async def create_agent_preset(
     return preset.model_dump()
 
 
+@router.put("/presets/agents/{name}")
+async def update_agent_preset(
+    name: str,
+    body: CreateAgentPresetRequest,
+    request: Request,
+) -> dict[str, Any]:
+    """에이전트 프리셋을 업데이트(덮어쓰기)한다."""
+    engine = get_engine(request)
+    # Verify name consistency
+    if body.name != name:
+        raise HTTPException(
+            status_code=400,
+            detail=f"URL name '{name}' does not match body name '{body.name}'",
+        )
+    # Verify preset exists
+    try:
+        engine.load_agent_preset(name)
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    preset = AgentPreset.model_validate(body.model_dump())
+    engine.save_agent_preset(preset, overwrite=True)
+    return preset.model_dump()
+
+
+@router.delete("/presets/agents/{name}", status_code=204)
+async def delete_agent_preset(
+    name: str,
+    request: Request,
+) -> None:
+    """에이전트 프리셋을 삭제한다."""
+    engine = get_engine(request)
+    try:
+        engine.delete_agent_preset(name)
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+
 @router.get("/presets/teams")
 async def list_team_presets(request: Request) -> dict[str, Any]:
     """팀 프리셋 목록을 조회한다."""
@@ -494,6 +532,61 @@ async def create_team_preset(
     except ValueError as e:
         raise HTTPException(status_code=409, detail=str(e)) from e
     return preset.model_dump()
+
+
+@router.put("/presets/teams/{name}")
+async def update_team_preset(
+    name: str,
+    body: CreateTeamPresetRequest,
+    request: Request,
+) -> dict[str, Any]:
+    """팀 프리셋을 업데이트(덮어쓰기)한다."""
+    engine = get_engine(request)
+    if body.name != name:
+        raise HTTPException(
+            status_code=400,
+            detail=f"URL name '{name}' does not match body name '{body.name}'",
+        )
+    try:
+        engine.load_team_preset(name)
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    preset = TeamPreset.model_validate(body.model_dump())
+    engine.save_team_preset(preset, overwrite=True)
+    return preset.model_dump()
+
+
+@router.delete("/presets/teams/{name}", status_code=204)
+async def delete_team_preset(
+    name: str,
+    request: Request,
+) -> None:
+    """팀 프리셋을 삭제한다."""
+    engine = get_engine(request)
+    try:
+        engine.delete_team_preset(name)
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+
+# ============================================================
+# Config endpoint
+# ============================================================
+
+
+@router.get("/config")
+async def get_config(request: Request) -> dict[str, Any]:
+    """현재 오케스트레이터 설정을 반환한다."""
+    engine = get_engine(request)
+    config = engine.config
+    fields: dict[str, Any] = {}
+    for field_name, field_info in OrchestratorConfig.model_fields.items():
+        value = getattr(config, field_name)
+        fields[field_name] = {
+            "value": value,
+            "description": field_info.description or "",
+        }
+    return {"fields": fields}
 
 
 # ============================================================
