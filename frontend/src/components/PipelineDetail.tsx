@@ -1,37 +1,57 @@
 import { useCallback, useEffect, useState } from "react";
+import Markdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import type { Pipeline } from "../types";
-import { FileExplorer } from "./FileExplorer";
-import type { SubtaskInfo } from "./SubtaskList";
-import { SubtaskList } from "./SubtaskList";
-import { SubtaskResultViewer } from "./SubtaskResultViewer";
 
 interface PipelineDetailProps {
   pipeline: Pipeline;
   onClose: () => void;
 }
 
+interface SubtaskSummary {
+  total: number;
+  done: number;
+  in_progress: number;
+  failed: number;
+}
+
 const API_BASE = "/api";
 
+function formatElapsed(startedAt: string | null, completedAt: string | null): string {
+  if (!startedAt) return "--";
+  const start = new Date(startedAt).getTime();
+  if (isNaN(start)) return "--";
+  const end = completedAt ? new Date(completedAt).getTime() : Date.now();
+  const sec = Math.max(0, Math.round((end - start) / 1000));
+  if (sec < 60) return `${sec}s`;
+  if (sec < 3600) return `${Math.floor(sec / 60)}m ${sec % 60}s`;
+  return `${Math.floor(sec / 3600)}h ${Math.floor((sec % 3600) / 60)}m`;
+}
+
 /**
- * PipelineDetail: expands when a pipeline row is clicked.
- * Shows subtask list, selected subtask result, and file explorer.
+ * PipelineDetail: brief summary panel above the kanban board.
+ * Shows status, progress bar, elapsed time, workspace paths, and synthesis.
+ * No subtask table (kanban board already shows that).
  */
 export function PipelineDetail({ pipeline, onClose }: PipelineDetailProps) {
-  const [subtasks, setSubtasks] = useState<SubtaskInfo[]>([]);
-  const [selectedSubtask, setSelectedSubtask] = useState<SubtaskInfo | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [summary, setSummary] = useState<SubtaskSummary>({ total: 0, done: 0, in_progress: 0, failed: 0 });
+  const [synthOpen, setSynthOpen] = useState(false);
 
   const fetchSubtasks = useCallback(async () => {
     try {
       const res = await fetch(`${API_BASE}/tasks/${pipeline.task_id}/subtasks`);
       if (res.ok) {
         const data = await res.json();
-        setSubtasks(data.subtasks || []);
+        const subtasks = data.subtasks || [];
+        setSummary({
+          total: subtasks.length,
+          done: subtasks.filter((s: { state: string }) => s.state === "done").length,
+          in_progress: subtasks.filter((s: { state: string }) => s.state === "in_progress").length,
+          failed: subtasks.filter((s: { state: string }) => s.state === "failed").length,
+        });
       }
     } catch {
       // ignore
-    } finally {
-      setLoading(false);
     }
   }, [pipeline.task_id]);
 
@@ -41,73 +61,78 @@ export function PipelineDetail({ pipeline, onClose }: PipelineDetailProps) {
     return () => clearInterval(id);
   }, [fetchSubtasks]);
 
-  // Progress calculation
-  const total = subtasks.length;
-  const completed = subtasks.filter(
-    (s) => s.state === "done" || s.state === "failed"
-  ).length;
-  const progressPct = total > 0 ? Math.round((completed / total) * 100) : 0;
+  const progressPct = summary.total > 0
+    ? Math.round(((summary.done + summary.failed) / summary.total) * 100)
+    : 0;
+
+  const workspacePaths = pipeline.workspace_paths || {};
+  const hasWorkspacePaths = Object.keys(workspacePaths).length > 0;
 
   return (
-    <div className="panel pipeline-detail">
-      <div className="panel-header" style={{ display: "flex", justifyContent: "space-between" }}>
-        <span>
-          Pipeline Detail: {pipeline.task.slice(0, 60)}
-          <span className={`status-badge ${pipeline.status}`} style={{ marginLeft: 8 }}>
-            {pipeline.status}
-          </span>
-        </span>
-        <button className="btn btn-small" onClick={onClose}>
-          Close
-        </button>
+    <div className="pipeline-summary">
+      <div className="pipeline-summary-header">
+        <h3>{pipeline.task.slice(0, 80)}{pipeline.task.length > 80 ? "..." : ""}</h3>
+        <span className={`status-badge ${pipeline.status}`}>{pipeline.status}</span>
+        <button className="btn btn-small" onClick={onClose}>Close</button>
       </div>
-
-      <div className="panel-body">
+      <div className="pipeline-summary-body">
         {/* Progress bar */}
-        <div style={{ marginBottom: 12 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 4 }}>
-            <span>Progress</span>
-            <span>{completed}/{total} ({progressPct}%)</span>
-          </div>
-          <div
-            style={{
-              height: 6,
-              background: "var(--bg-secondary, #333)",
-              borderRadius: 3,
-              overflow: "hidden",
-            }}
-          >
+        <div className="pipeline-progress">
+          <div className="pipeline-progress-bar">
             <div
+              className="pipeline-progress-fill"
               style={{
                 width: `${progressPct}%`,
-                height: "100%",
-                background: pipeline.status === "failed" ? "var(--danger, #e55)" : "var(--success, #4c4)",
-                transition: "width 0.3s ease",
+                background: pipeline.status === "failed"
+                  ? "var(--accent-red)"
+                  : pipeline.status === "completed"
+                    ? "var(--accent-green)"
+                    : "var(--accent-blue)",
               }}
             />
           </div>
+          <span className="pipeline-progress-label">{progressPct}%</span>
         </div>
 
-        {loading ? (
-          <div className="empty-state">Loading subtasks...</div>
-        ) : (
-          <>
-            <SubtaskList
-              subtasks={subtasks}
-              onSelect={setSelectedSubtask}
-              selectedId={selectedSubtask?.id ?? null}
-            />
+        {/* Key stats */}
+        <div className="pipeline-stats">
+          <span>Team: <strong>{pipeline.team_preset || "auto"}</strong></span>
+          <span>Progress: <strong>{summary.done}/{summary.total}</strong></span>
+          {summary.in_progress > 0 && (
+            <span>Running: <strong>{summary.in_progress}</strong></span>
+          )}
+          {summary.failed > 0 && (
+            <span className="pipeline-stat-failed">Failed: <strong>{summary.failed}</strong></span>
+          )}
+          <span>Elapsed: <strong>{formatElapsed(pipeline.started_at, pipeline.completed_at)}</strong></span>
+        </div>
 
-            {selectedSubtask && (
-              <div style={{ marginTop: 12 }}>
-                <SubtaskResultViewer subtask={selectedSubtask} />
+        {/* Workspace paths */}
+        {hasWorkspacePaths && (
+          <div className="workspace-paths">
+            <span className="workspace-paths-label">Workspace:</span>
+            {Object.entries(workspacePaths).map(([lane, path]) => (
+              <code key={lane}>{lane}: {path}</code>
+            ))}
+          </div>
+        )}
+
+        {/* Synthesis (collapsible) */}
+        {pipeline.synthesis && (
+          <div className="pipeline-synthesis">
+            <button
+              className="pipeline-synthesis-toggle"
+              onClick={() => setSynthOpen(!synthOpen)}
+            >
+              <span className="pipeline-synthesis-arrow">{synthOpen ? "\u25BC" : "\u25B6"}</span>
+              Synthesis Report
+            </button>
+            {synthOpen && (
+              <div className="pipeline-synthesis-content markdown-content">
+                <Markdown remarkPlugins={[remarkGfm]}>{pipeline.synthesis}</Markdown>
               </div>
             )}
-
-            <div style={{ marginTop: 12 }}>
-              <FileExplorer taskId={pipeline.task_id} />
-            </div>
-          </>
+          </div>
         )}
       </div>
     </div>

@@ -23,6 +23,7 @@ const mockPipeline: Pipeline = {
     },
   ],
   synthesis: "## Summary\nAll tasks completed successfully.",
+  workspace_paths: {},
   merged: false,
   error: "",
   started_at: "2026-04-05T14:30:00Z",

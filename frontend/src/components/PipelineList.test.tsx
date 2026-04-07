@@ -12,6 +12,7 @@ const mockPipeline: Pipeline = {
   subtasks: [],
   results: [],
   synthesis: "",
+  workspace_paths: {},
   merged: false,
   error: "",
   started_at: "2026-04-05T14:30:00Z",

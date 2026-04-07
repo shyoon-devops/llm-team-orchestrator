@@ -2,10 +2,8 @@ import { useState } from "react";
 import { AgentStatusPanel } from "./components/AgentStatusPanel";
 import { EventLog } from "./components/EventLog";
 import { KanbanBoard } from "./components/KanbanBoard";
-import { LiveOutput } from "./components/LiveOutput";
 import { PipelineDetail } from "./components/PipelineDetail";
 import { PipelineList } from "./components/PipelineList";
-import { ResultViewer } from "./components/ResultViewer";
 import { TaskSubmitForm } from "./components/TaskSubmitForm";
 import { TeamPresetsPanel } from "./components/TeamPresetsPanel";
 import { useAgents, useBoard, usePipelines } from "./hooks/useApi";
@@ -22,9 +20,10 @@ const WS_URL =
  *
  * Layout:
  * - Top: PipelineList (full width)
- * - Left: KanbanBoard
+ * - Below pipeline list: PipelineDetail summary (when selected)
+ * - Left: KanbanBoard (main area)
  * - Right sidebar: TaskSubmitForm, TeamPresetsPanel, AgentStatusPanel, EventLog
- * - Bottom (conditional): ResultViewer for selected pipeline
+ * - Task detail: Jira-style side panel (modal overlay from KanbanBoard)
  */
 export function App() {
   const { pipelines, loading, refresh } = usePipelines();
@@ -51,19 +50,6 @@ export function App() {
           onRefresh={refresh}
         />
 
-        <KanbanBoard board={board} />
-
-        <div className="sidebar">
-          <TaskSubmitForm onSubmitted={refresh} />
-          <TeamPresetsPanel />
-          <AgentStatusPanel agents={agents} />
-          <EventLog events={events} connected={connected} onClear={clearEvents} />
-          <LiveOutput
-            events={outputEvents}
-            taskId={selectedPipeline?.task_id}
-          />
-        </div>
-
         {selectedPipeline && (
           <PipelineDetail
             pipeline={selectedPipeline}
@@ -71,12 +57,14 @@ export function App() {
           />
         )}
 
-        {selectedPipeline && selectedPipeline.synthesis && (
-          <ResultViewer
-            pipeline={selectedPipeline}
-            onClose={() => setSelectedPipeline(null)}
-          />
-        )}
+        <KanbanBoard board={board} outputEvents={outputEvents} />
+
+        <div className="sidebar">
+          <TaskSubmitForm onSubmitted={refresh} />
+          <TeamPresetsPanel />
+          <AgentStatusPanel agents={agents} />
+          <EventLog events={events} connected={connected} onClear={clearEvents} />
+        </div>
       </div>
     </div>
   );

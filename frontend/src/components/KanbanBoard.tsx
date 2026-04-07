@@ -1,10 +1,11 @@
 import { useState } from "react";
-import type { BoardState, TaskState } from "../types";
+import type { BoardState, TaskState, WSEvent } from "../types";
 import { extractTitle } from "../utils";
 import { TaskDetailModal } from "./TaskDetailModal";
 
 interface KanbanBoardProps {
   board: BoardState | null;
+  outputEvents: WSEvent[];
 }
 
 const LANE_COLORS: Record<string, string> = {
@@ -38,11 +39,11 @@ const COLUMNS: { key: TaskState; label: string }[] = [
 ];
 
 /**
- * KanbanBoard: visualizes TaskBoard state with 5 columns.
+ * KanbanBoard: Jira-style kanban with 5 columns.
  * Data comes from GET /api/board.
- * Clicking a task card opens a detail modal.
+ * Clicking a task card opens a detail side panel.
  */
-export function KanbanBoard({ board }: KanbanBoardProps) {
+export function KanbanBoard({ board, outputEvents }: KanbanBoardProps) {
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
 
   if (!board) {
@@ -88,48 +89,45 @@ export function KanbanBoard({ board }: KanbanBoardProps) {
     <div className="panel kanban-board">
       <div className="panel-header">
         <span>Task Board</span>
-        <span style={{ fontSize: 12, fontWeight: 400 }}>
-          Total: {board.summary.total}
-        </span>
+        <span className="kanban-total">Total: {board.summary.total}</span>
       </div>
       <div className="panel-body">
         <div className="kanban-columns">
           {COLUMNS.map((col) => (
-            <div key={col.key} className="kanban-column">
+            <div key={col.key} className={`kanban-column kanban-col-${col.key}`}>
               <div className="kanban-column-header">
                 <span>{col.label}</span>
                 <span className="kanban-count">{columns[col.key].length}</span>
               </div>
-              {columns[col.key].map((task) => (
-                <div
-                  key={task.id}
-                  className="kanban-card"
-                  style={{
-                    cursor: "pointer",
-                    borderLeft: `3px solid ${getLaneColor(task.lane)}`,
-                  }}
-                  onClick={() => setSelectedTaskId(task.id)}
-                >
-                  <div className="kanban-card-title">
-                    {task.state === "in_progress" && <span className="kanban-card-spinner" style={{ marginRight: 6 }} />}
-                    {extractTitle(task.title)}
-                  </div>
-                  <div className="kanban-card-meta">
-                    {task.lane}
-                    {task.assignedTo ? ` | ${task.assignedTo}` : ""}
-                  </div>
-                  {task.checklistTotal > 0 && (
-                    <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2 }}>
-                      {"\u2705"} {task.checklistDone}/{task.checklistTotal}
+              <div className="kanban-column-body">
+                {columns[col.key].map((task) => (
+                  <div
+                    key={task.id}
+                    className={`kanban-card ${task.state === "in_progress" ? "kanban-card-active" : ""}`}
+                    style={{ borderLeft: `3px solid ${getLaneColor(task.lane)}` }}
+                    onClick={() => setSelectedTaskId(task.id)}
+                  >
+                    <div className="kanban-card-header">
+                      {task.state === "in_progress" && <span className="kanban-card-spinner" />}
+                      <span className="kanban-card-title">{extractTitle(task.title)}</span>
                     </div>
-                  )}
-                </div>
-              ))}
-              {columns[col.key].length === 0 && (
-                <div className="empty-state" style={{ padding: 12 }}>
-                  --
-                </div>
-              )}
+                    <div className="kanban-card-footer">
+                      <span className="kanban-card-lane">{task.lane}</span>
+                      {task.checklistTotal > 0 && (
+                        <span className="kanban-card-checklist">
+                          {task.checklistDone}/{task.checklistTotal}
+                        </span>
+                      )}
+                      {task.assignedTo && (
+                        <span className="kanban-card-assignee">{task.assignedTo}</span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+                {columns[col.key].length === 0 && (
+                  <div className="kanban-empty">--</div>
+                )}
+              </div>
             </div>
           ))}
         </div>
@@ -138,6 +136,7 @@ export function KanbanBoard({ board }: KanbanBoardProps) {
       {selectedTaskId && (
         <TaskDetailModal
           taskId={selectedTaskId}
+          outputEvents={outputEvents}
           onClose={() => setSelectedTaskId(null)}
         />
       )}

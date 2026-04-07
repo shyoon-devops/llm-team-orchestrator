@@ -53,6 +53,7 @@ export interface Pipeline {
   subtasks: SubTask[];
   results: WorkerResult[];
   synthesis: string;
+  workspace_paths: Record<string, string>;
   merged: boolean;
   error: string;
   started_at: string | null;

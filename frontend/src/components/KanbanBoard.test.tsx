@@ -5,7 +5,7 @@ import type { BoardState } from "../types";
 
 describe("KanbanBoard", () => {
   it("renders empty state when board is null", () => {
-    render(<KanbanBoard board={null} />);
+    render(<KanbanBoard board={null} outputEvents={[]} />);
     expect(screen.getByText("No board data")).toBeInTheDocument();
   });
 
@@ -14,7 +14,7 @@ describe("KanbanBoard", () => {
       lanes: {},
       summary: { total: 0, by_state: { backlog: 0, todo: 0, in_progress: 0, done: 0, failed: 0 } },
     };
-    render(<KanbanBoard board={emptyBoard} />);
+    render(<KanbanBoard board={emptyBoard} outputEvents={[]} />);
     expect(screen.getByText("Backlog")).toBeInTheDocument();
     expect(screen.getByText("Todo")).toBeInTheDocument();
     expect(screen.getByText("In Progress")).toBeInTheDocument();
@@ -52,7 +52,7 @@ describe("KanbanBoard", () => {
       },
       summary: { total: 1, by_state: { backlog: 0, todo: 1, in_progress: 0, done: 0, failed: 0 } },
     };
-    render(<KanbanBoard board={board} />);
+    render(<KanbanBoard board={board} outputEvents={[]} />);
     expect(screen.getByText("Implement JWT module")).toBeInTheDocument();
     expect(screen.getByText("Total: 1")).toBeInTheDocument();
   });
