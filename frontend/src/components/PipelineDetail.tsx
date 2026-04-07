@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Pipeline } from "../types";
+import { formatElapsed } from "../utils";
 
 interface PipelineDetailProps {
   pipeline: Pipeline;
@@ -16,17 +17,6 @@ interface SubtaskSummary {
 }
 
 const API_BASE = "/api";
-
-function formatElapsed(startedAt: string | null, completedAt: string | null): string {
-  if (!startedAt) return "--";
-  const start = new Date(startedAt).getTime();
-  if (isNaN(start)) return "--";
-  const end = completedAt ? new Date(completedAt).getTime() : Date.now();
-  const sec = Math.max(0, Math.round((end - start) / 1000));
-  if (sec < 60) return `${sec}s`;
-  if (sec < 3600) return `${Math.floor(sec / 60)}m ${sec % 60}s`;
-  return `${Math.floor(sec / 3600)}h ${Math.floor((sec % 3600) / 60)}m`;
-}
 
 /**
  * PipelineDetail: brief summary panel above the kanban board.

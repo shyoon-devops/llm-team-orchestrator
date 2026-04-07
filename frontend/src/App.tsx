@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { AgentStatusPanel } from "./components/AgentStatusPanel";
+import { OutputEventsProvider } from "./contexts/OutputEventsContext";
 import { EventLog } from "./components/EventLog";
 import { KanbanBoard } from "./components/KanbanBoard";
 import { PipelineDetail } from "./components/PipelineDetail";
@@ -57,7 +58,9 @@ export function App() {
           />
         )}
 
-        <KanbanBoard board={board} outputEvents={outputEvents} />
+        <OutputEventsProvider value={outputEvents}>
+          <KanbanBoard board={board} />
+        </OutputEventsProvider>
 
         <div className="sidebar">
           <TaskSubmitForm onSubmitted={refresh} />

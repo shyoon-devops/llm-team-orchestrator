@@ -1,11 +1,11 @@
 import { useState } from "react";
-import type { BoardState, TaskState, WSEvent } from "../types";
+import type { BoardState, TaskState } from "../types";
+import { useOutputEvents } from "../contexts/OutputEventsContext";
 import { extractTitle } from "../utils";
 import { TaskDetailModal } from "./TaskDetailModal";
 
 interface KanbanBoardProps {
   board: BoardState | null;
-  outputEvents: WSEvent[];
 }
 
 const LANE_COLORS: Record<string, string> = {
@@ -43,8 +43,9 @@ const COLUMNS: { key: TaskState; label: string }[] = [
  * Data comes from GET /api/board.
  * Clicking a task card opens a detail side panel.
  */
-export function KanbanBoard({ board, outputEvents }: KanbanBoardProps) {
+export function KanbanBoard({ board }: KanbanBoardProps) {
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const outputEvents = useOutputEvents();
 
   if (!board) {
     return (

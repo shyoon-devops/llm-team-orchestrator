@@ -847,8 +847,20 @@ class OrchestratorEngine:
             evaluated_reviewer_ids: set[str] = set()
             review_iteration = 0
             execution_start = time.monotonic()
+            pipeline_max_time = self.config.default_timeout * max(len(subtasks), 1) * 2
 
             while True:
+                # 전체 파이프라인 타임아웃 가드
+                elapsed = time.monotonic() - execution_start
+                if elapsed > pipeline_max_time:
+                    logger.error(
+                        "pipeline_timeout",
+                        task_id=task_id,
+                        elapsed_s=int(elapsed),
+                        max_s=pipeline_max_time,
+                    )
+                    break
+
                 # 취소 확인
                 current = self._pipelines.get(task_id)
                 if current and current.status == PipelineStatus.CANCELLED:

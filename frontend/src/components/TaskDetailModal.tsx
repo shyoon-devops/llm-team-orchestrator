@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { ChecklistItem, WSEvent } from "../types";
-import { extractTitle } from "../utils";
+import { extractTitle, formatElapsed } from "../utils";
 import { LiveOutputInline } from "./LiveOutputInline";
 
 interface TaskDetail {
@@ -32,18 +32,6 @@ interface TaskDetailModalProps {
   onClose: () => void;
 }
 
-function formatElapsed(startedAt: string | null, completedAt: string | null): string {
-  if (!startedAt) return "-";
-  const start = new Date(startedAt).getTime();
-  const end = completedAt ? new Date(completedAt).getTime() : Date.now();
-  const ms = end - start;
-  if (ms < 1000) return `${ms}ms`;
-  const seconds = Math.round(ms / 1000);
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  const remainSeconds = seconds % 60;
-  return `${minutes}m ${remainSeconds}s`;
-}
 
 /**
  * TaskDetailModal: Jira-style side panel for task details.
@@ -66,12 +54,18 @@ export function TaskDetailModal({ taskId, outputEvents, onClose }: TaskDetailMod
       .finally(() => setLoading(false));
   }, [taskId]);
 
+  const detailRef = useRef(detail);
+  detailRef.current = detail;
+
   useEffect(() => {
     setLoading(true);
     setError("");
     fetchDetail();
-    // Refresh while in_progress
-    const id = setInterval(fetchDetail, 3000);
+    // Refresh while not in terminal state
+    const id = setInterval(() => {
+      if (detailRef.current && ["done", "failed"].includes(detailRef.current.state)) return;
+      fetchDetail();
+    }, 3000);
     return () => clearInterval(id);
   }, [fetchDetail]);
 
