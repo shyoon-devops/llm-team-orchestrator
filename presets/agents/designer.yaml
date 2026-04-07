@@ -15,6 +15,7 @@ execution:
   mode: cli
   preferred_cli: claude
   fallback_cli: [gemini]
+model: claude-sonnet-4-20250514
 mcp_servers:
   figma:
     command: uv

@@ -586,6 +586,7 @@ class OrchestratorEngine:
                 timeout=preset.limits.timeout,
                 working_dir=cwd,
                 mcp_servers=preset.mcp_servers,
+                model=preset.model,
             )
             persona = preset.persona.to_system_prompt()
             executor = CLIAgentExecutor(
@@ -631,6 +632,7 @@ class OrchestratorEngine:
                     timeout=timeout,
                     working_dir=cwd,
                     mcp_servers=preset.mcp_servers,
+                    model=preset.model,
                 )
                 executor = CLIAgentExecutor(
                     adapter=adapter,
@@ -824,14 +826,87 @@ class OrchestratorEngine:
                     pipeline_workers.append(worker_id)
                     await worker.start()
 
-            # ── Phase 3: RUNNING — 모든 태스크 완료 대기 ─────────────────
+            # ── Phase 3: RUNNING — streaming QualityGate + 완료 대기 ────
+            #
+            # QualityGate가 활성화되어 있으면 reviewer 태스크 완료 즉시 평가하고,
+            # reject 시 재작업 태스크를 바로 생성한다 (다른 태스크 완료를 기다리지 않음).
+
+            if self.config.quality_gate_enabled:
+                from orchestrator.core.quality_gate import QualityGate
+
+                quality_gate: QualityGate | None = QualityGate(
+                    verdict_format=self.config.quality_gate_verdict_format,
+                )
+                max_review_iterations = self.config.max_review_iterations
+            else:
+                quality_gate = None
+                max_review_iterations = 0
+
+            evaluated_reviewer_ids: set[str] = set()
+            review_iteration = 0
             execution_start = time.monotonic()
+
             while not self._board.is_all_done(task_id):
                 # 취소 확인
                 current = self._pipelines.get(task_id)
                 if current and current.status == PipelineStatus.CANCELLED:
                     return
+
+                # Streaming QualityGate: 완료된 reviewer 태스크 즉시 평가
+                if quality_gate is not None and review_iteration < max_review_iterations:
+                    all_pipeline_tasks = self._board.get_results(task_id)
+                    for rt in all_pipeline_tasks:
+                        if rt.id in evaluated_reviewer_ids:
+                            continue
+                        if rt.lane not in ("reviewer", "auditor"):
+                            continue
+                        if not rt.result:
+                            continue
+
+                        evaluated_reviewer_ids.add(rt.id)
+                        verdict = quality_gate.evaluate(rt.result, "reviewer")
+
+                        if not verdict.approved:
+                            review_iteration += 1
+                            logger.info(
+                                "quality_gate_rework_needed",
+                                task_id=task_id,
+                                reviewer_task=rt.id,
+                                iteration=review_iteration,
+                            )
+                            # implementer 재작업 태스크 생성
+                            rework_id = generate_id("rework")
+                            rework_task = TaskItem(
+                                id=rework_id,
+                                title=f"재작업 (iteration {review_iteration})",
+                                description=(
+                                    f"리뷰어 피드백에 따라 코드를 수정하세요:\n\n"
+                                    f"{verdict.feedback[:2000]}\n\n"
+                                    f"사용자 태스크: {pipeline.task}"
+                                ),
+                                lane="implementer",
+                                depends_on=[],
+                                pipeline_id=task_id,
+                            )
+                            await self._board.submit(rework_task)
+
+                            # 재리뷰 태스크
+                            re_review_id = generate_id("review")
+                            re_review_task = TaskItem(
+                                id=re_review_id,
+                                title=f"재리뷰 (iteration {review_iteration})",
+                                description=(
+                                    f"재작업된 코드를 리뷰하세요.\n\n"
+                                    f"사용자 태스크: {pipeline.task}"
+                                ),
+                                lane="reviewer",
+                                depends_on=[rework_id],
+                                pipeline_id=task_id,
+                            )
+                            await self._board.submit(re_review_task)
+
                 await asyncio.sleep(0.1)
+
             execution_ms = int((time.monotonic() - execution_start) * 1000)
             logger.info(
                 "perf_execution",
@@ -859,84 +934,6 @@ class OrchestratorEngine:
                         lane=finished_item.lane,
                         state=finished_item.state.value,
                     )
-
-            # ── Phase 3.5: Quality Gate — reviewer 결과 평가 + 재작업 ────
-            if self.config.quality_gate_enabled:
-                from orchestrator.core.quality_gate import QualityGate
-
-                quality_gate = QualityGate(
-                    verdict_format=self.config.quality_gate_verdict_format,
-                )
-                max_review_iterations = self.config.max_review_iterations
-            else:
-                max_review_iterations = 0
-
-            review_iteration = 0
-
-            while review_iteration < max_review_iterations:
-                # reviewer subtask 찾기
-                reviewer_tasks = [
-                    self._board.get_task(st.id)
-                    for st in subtasks
-                    if (st.assigned_preset or "").lower() in ("reviewer", "auditor")
-                ]
-                reviewer_tasks = [t for t in reviewer_tasks if t and t.result]
-
-                needs_rework = False
-                for rt in reviewer_tasks:
-                    verdict = quality_gate.evaluate(rt.result, "reviewer")
-                    if not verdict.approved:
-                        logger.info(
-                            "quality_gate_rework_needed",
-                            task_id=task_id,
-                            reviewer_task=rt.id,
-                            iteration=review_iteration + 1,
-                        )
-                        # implementer 재작업 태스크 생성
-                        rework_id = generate_id("rework")
-                        rework_task = TaskItem(
-                            id=rework_id,
-                            title=f"재작업 (iteration {review_iteration + 1})",
-                            description=(
-                                f"리뷰어 피드백에 따라 코드를 수정하세요:\n\n"
-                                f"{verdict.feedback[:2000]}\n\n"
-                                f"사용자 태스크: {pipeline.task}"
-                            ),
-                            lane="implementer",
-                            depends_on=[],
-                            pipeline_id=task_id,
-                        )
-                        await self._board.submit(rework_task)
-
-                        # 재리뷰 태스크
-                        re_review_id = generate_id("review")
-                        re_review_task = TaskItem(
-                            id=re_review_id,
-                            title=f"재리뷰 (iteration {review_iteration + 1})",
-                            description=(
-                            f"재작업된 코드를 리뷰하세요.\n\n"
-                            f"사용자 태스크: {pipeline.task}"
-                        ),
-                            lane="reviewer",
-                            depends_on=[rework_id],
-                            pipeline_id=task_id,
-                        )
-                        await self._board.submit(re_review_task)
-
-                        needs_rework = True
-                        break
-
-                if not needs_rework:
-                    break
-
-                # 재작업 완료 대기
-                while not self._board.is_all_done(task_id):
-                    current = self._pipelines.get(task_id)
-                    if current and current.status == PipelineStatus.CANCELLED:
-                        return
-                    await asyncio.sleep(0.1)
-
-                review_iteration += 1
 
             # ── Phase 4: RUNNING → SYNTHESIZING ──────────────────────────
             self._pipelines[task_id] = self._pipelines[task_id].model_copy(

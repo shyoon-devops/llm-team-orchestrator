@@ -19,7 +19,7 @@ execution:
   mode: cli
   preferred_cli: claude
   fallback_cli: []
-  model_override: ""
+  model_override: claude-haiku-4-5-20251001
 
 limits:
   timeout: 300
