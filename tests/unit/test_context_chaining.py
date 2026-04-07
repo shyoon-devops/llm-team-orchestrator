@@ -166,7 +166,7 @@ async def test_build_prompt_with_multiple_deps() -> None:
 
 
 async def test_build_prompt_truncates_result() -> None:
-    """선행 결과가 3000자를 초과하면 잘린다."""
+    """선행 결과가 2000자를 초과하면 잘린다."""
     board = TaskBoard()
     bus = EventBus()
     executor = StubExecutor()
@@ -204,7 +204,7 @@ async def test_build_prompt_truncates_result() -> None:
     prompt = await worker._build_prompt(task)
     # The injected result should be truncated to 3000 chars
     assert len(prompt) < len(long_result)
-    assert "X" * 3000 in prompt
+    assert "X" * 2000 in prompt
     assert "X" * 3001 not in prompt
 
 

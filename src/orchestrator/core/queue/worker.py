@@ -209,14 +209,16 @@ class AgentWorker:
         """
         prompt: str = task.description
         if task.depends_on:
-            context_parts = ["\n\n--- 이전 단계 결과 ---"]
+            context_parts = ["\n\n--- 이전 단계 결과 (참고용, 출력하지 마세요) ---"]
             for dep_id in task.depends_on:
                 dep_task = self.board.get_task(dep_id)
                 if dep_task and dep_task.result:
                     context_parts.append(
-                        f"\n[{dep_task.lane}] {dep_task.result[:3000]}"
+                        f"\n[{dep_task.lane}] {dep_task.result[:2000]}"
                     )
+            context_parts.append("\n--- 이전 단계 결과 끝 ---")
             prompt += "\n".join(context_parts)
+            prompt += "\n\n위 참고 자료의 내용을 그대로 반복하지 마세요. 자신의 분석/작업 결과만 출력하세요.\n"
             logger.info(
                 "context_chaining",
                 task_id=task.id,

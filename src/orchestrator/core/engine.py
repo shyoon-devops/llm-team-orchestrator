@@ -978,12 +978,15 @@ class OrchestratorEngine:
                             )
 
                 if self.config.auto_merge:
+                    merge_successes: list[str] = []
+                    merge_failures: list[str] = []
                     for branch in worktree_branches:
                         try:
                             merged = await self._worktree_manager.merge_to_target(
                                 branch, strategy=self.config.merge_strategy,
                             )
                             if merged:
+                                merge_successes.append(branch)
                                 logger.info("worktree_merged", branch=branch)
                                 await self._event_bus.emit(
                                     OrchestratorEvent(
@@ -994,33 +997,36 @@ class OrchestratorEngine:
                                     )
                                 )
                             else:
-                                logger.warning("worktree_merge_failed", branch=branch)
-                                self._pipelines[task_id] = self._pipelines[
-                                    task_id
-                                ].model_copy(
-                                    update={
-                                        "error": (
-                                            self._pipelines[task_id].error
-                                            + f"merge conflict: {branch}; "
-                                        )
-                                    }
-                                )
+                                merge_failures.append(branch)
+                                logger.warning("worktree_merge_skipped", branch=branch)
                         except Exception as merge_err:
+                            merge_failures.append(branch)
                             logger.warning(
-                                "worktree_merge_failed",
+                                "worktree_merge_error",
                                 branch=branch,
                                 error=str(merge_err),
                             )
-                            self._pipelines[task_id] = self._pipelines[
-                                task_id
-                            ].model_copy(
-                                update={
-                                    "error": (
-                                        self._pipelines[task_id].error
-                                        + f"merge conflict: {branch}; "
-                                    )
-                                }
-                            )
+
+                    # Only set pipeline.error if ALL merges failed
+                    if merge_failures and not merge_successes:
+                        self._pipelines[task_id] = self._pipelines[
+                            task_id
+                        ].model_copy(
+                            update={
+                                "error": (
+                                    self._pipelines[task_id].error
+                                    + f"all merges failed: {', '.join(merge_failures)}; "
+                                )
+                            }
+                        )
+                    elif merge_failures:
+                        # Partial failure: log warning but don't set pipeline error
+                        logger.warning(
+                            "worktree_merge_partial_failure",
+                            task_id=task_id,
+                            succeeded=merge_successes,
+                            failed=merge_failures,
+                        )
                 else:
                     logger.info(
                         "auto_merge_disabled",
