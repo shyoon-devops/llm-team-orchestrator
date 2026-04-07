@@ -1,17 +1,15 @@
 # presets/teams/incident-analysis-team.yaml
 name: incident-analysis-team
-description: "프로덕션 인시던트 분석 팀 — ELK/Grafana/K8s/Istio 병렬 분석 → 종합 보고서"
+description: "프로덕션 인시던트 분석 팀 — 운영팀장이 지휘하고 4개 전문가가 분석, 팀장이 종합 보고"
 
 agents:
+  ops-lead:
+    preset: ops-lead
   elk:
     preset: elk-analyst
     overrides:
       limits:
         timeout: 300
-      persona:
-        constraints:
-          - "최근 30분 로그에 집중한다"
-          - "5xx 에러, timeout, connection refused 패턴을 우선 분석한다"
   metrics:
     preset: metrics-analyst
   k8s:
@@ -20,76 +18,132 @@ agents:
     preset: istio-analyst
 
 tasks:
+  triage:
+    description: |
+      운영팀장으로서 장애 상황을 초기 분석하라.
+
+      다음을 수행하라:
+      1. 장애 증상을 정리한다 (어떤 서비스, 어떤 에러, 어떤 영향)
+      2. 조사해야 할 영역을 식별한다
+      3. 각 분석 담당자에게 전달할 구체적인 조사 지시를 작성한다:
+         - ELK 담당: 어떤 로그를 어떤 조건으로 검색해야 하는지
+         - 메트릭 담당: 어떤 메트릭을 어떤 시간대로 확인해야 하는지
+         - K8s 담당: 어떤 네임스페이스/Pod/노드를 확인해야 하는지
+         - Istio 담당: 어떤 서비스 간 통신을 확인해야 하는지
+      4. 초기 심각도 판정 (P1~P4)
+
+      출력 형식:
+      ## 초기 분석
+      ## 조사 지시
+      ### ELK 담당 조사 사항
+      ### 메트릭 담당 조사 사항
+      ### K8s 담당 조사 사항
+      ### Istio 담당 조사 사항
+      ## 초기 심각도 판정
+    agent: ops-lead
+    depends_on: []
+
   log-analysis:
     description: |
-      ELK에서 에러 로그를 분석하라.
+      운영팀장의 지시에 따라 ELK 로그를 상세 분석하라.
 
-      MCP 도구를 사용하여 다음을 수행:
-      1. search_logs 도구로 최근 에러 로그를 검색한다
-      2. get_error_summary 도구로 서비스별 에러 코드 분포를 확인한다
-      3. get_log_sample 도구로 주요 에러 샘플을 수집한다
+      MCP 도구 사용:
+      1. search_logs 도구로 에러 로그를 검색한다
+      2. get_error_summary 도구로 서비스별 에러 분포를 확인한다
+      3. get_log_sample 도구로 핵심 에러 샘플을 수집한다
 
-      분석 결과에 반드시 포함:
-      - 에러 발생 타임라인
+      반드시 포함:
+      - 에러 발생 정확한 타임라인 (분 단위)
       - 에러 메시지 패턴 분류
-      - 영향 받는 서비스 목록
-      - 근본 원인 추정
+      - 영향 받는 서비스 목록과 에러율
+      - 로그 기반 근본 원인 추정
     agent: elk
-    depends_on: []
+    depends_on: [triage]
 
   metrics-analysis:
     description: |
-      Grafana/Prometheus 메트릭을 분석하라.
+      운영팀장의 지시에 따라 Grafana/Prometheus 메트릭을 상세 분석하라.
 
-      MCP 도구를 사용하여 다음을 수행:
-      1. query_metrics 도구로 http_request_duration_seconds_p99 메트릭을 조회한다
-      2. query_metrics 도구로 http_requests_total_5xx_rate 메트릭을 조회한다
-      3. query_metrics 도구로 db_connection_pool_active 메트릭을 조회한다
-      4. get_active_alerts 도구로 현재 활성 알림을 확인한다
-      5. get_dashboard_summary 도구로 대시보드 요약을 확인한다
+      MCP 도구 사용:
+      1. query_metrics로 http_request_duration_seconds_p99 조회
+      2. query_metrics로 http_requests_total_5xx_rate 조회
+      3. query_metrics로 db_connection_pool_active 조회 (service=payment-db)
+      4. query_metrics로 db_connection_pool_waiting 조회 (service=payment-db)
+      5. get_active_alerts로 활성 알림 확인
+      6. get_dashboard_summary로 대시보드 요약 확인
 
-      분석 결과에 반드시 포함:
-      - 메트릭 변곡점(spike 시작 시각)
-      - 정상 baseline 대비 변화량
-      - 활성 알림 목록과 심각도
+      반드시 포함:
+      - 변곡점(spike 시작 시각) 정확히 특정
+      - 정상 baseline 대비 변화량 (배수)
+      - 활성 알림 목록 + 심각도
+      - 메트릭 간 상관관계 분석
     agent: metrics
-    depends_on: []
+    depends_on: [triage]
 
   infra-analysis:
     description: |
-      Kubernetes 클러스터 상태를 분석하라.
+      운영팀장의 지시에 따라 Kubernetes 인프라를 상세 분석하라.
 
-      MCP 도구를 사용하여 다음을 수행:
-      1. list_pods 도구로 production 네임스페이스의 Pod 상태를 확인한다
-      2. get_pod_logs 도구로 비정상 Pod의 로그를 확인한다
-      3. describe_resource 도구로 문제 Pod의 Events를 확인한다
-      4. get_node_status 도구로 노드 리소스 사용량을 확인한다
+      MCP 도구 사용:
+      1. list_pods로 production Pod 전체 상태 확인
+      2. get_pod_logs로 CrashLoopBackOff/비정상 Pod 로그 확인
+      3. describe_resource로 문제 Pod의 Events 확인
+      4. get_node_status로 노드 리소스 사용량 확인
 
-      분석 결과에 반드시 포함:
-      - CrashLoopBackOff/OOMKilled Pod 목록
-      - 재시작 횟수와 패턴
-      - 노드별 리소스 사용률
-      - 최근 Events 요약
+      반드시 포함:
+      - 비정상 Pod 목록 (CrashLoopBackOff, OOMKilled 등)
+      - 각 Pod의 재시작 횟수, 마지막 종료 사유
+      - 노드별 CPU/메모리 사용률
+      - Events에서 반복되는 Warning 패턴
     agent: k8s
-    depends_on: []
+    depends_on: [triage]
 
   mesh-analysis:
     description: |
-      Istio 서비스 메시 상태를 분석하라.
+      운영팀장의 지시에 따라 Istio 서비스 메시를 상세 분석하라.
 
-      MCP 도구를 사용하여 다음을 수행:
-      1. get_circuit_breaker_status 도구로 서킷 브레이커 상태를 확인한다
-      2. get_service_metrics 도구로 서비스 간 요청/에러율을 확인한다
-      3. get_destination_rules 도구로 트래픽 정책을 확인한다
-      4. get_virtual_services 도구로 라우팅 규칙을 확인한다
+      MCP 도구 사용:
+      1. get_circuit_breaker_status로 서킷 브레이커 상태 확인
+      2. get_service_metrics로 서비스 간 요청/에러율 확인
+      3. get_destination_rules로 트래픽 정책 확인
+      4. get_virtual_services로 라우팅 규칙과 retry 설정 확인
 
-      분석 결과에 반드시 포함:
-      - 서킷 브레이커 발동 서비스와 시각
+      반드시 포함:
+      - 서킷 브레이커 발동 서비스, 시각, 원인
       - 서비스 간 에러율 매트릭스
-      - cascade failure 경로 추적
-      - 현재 트래픽 정책 평가
+      - cascade failure 경로 (A→B→C 순서)
+      - 현재 retry/timeout 설정 적절성 평가
     agent: istio
-    depends_on: []
+    depends_on: [triage]
 
-workflow: parallel
+  final-report:
+    description: |
+      운영팀장으로서 4개 분석팀의 결과를 종합하여 최종 장애 보고서를 작성하라.
+
+      이전 단계 결과에서 전달받은 4개 분석 결과를 기반으로:
+
+      1. 근본 원인 (Root Cause) 확정
+      2. 장애 타임라인 통합 (분 단위)
+      3. 영향 범위 정량화
+      4. 조치 사항 정리
+
+      보고서 형식:
+      # 장애 보고서: [제목]
+      ## 요약 (Executive Summary)
+      ## 심각도 및 영향 범위
+      ## 장애 타임라인
+      ## 근본 원인 분석
+      ## 각 분석팀 결과 요약
+      ### 로그 분석 (ELK)
+      ### 메트릭 분석 (Grafana)
+      ### 인프라 분석 (K8s)
+      ### 서비스 메시 분석 (Istio)
+      ## 즉시 조치 사항 (Immediate)
+      ## 단기 개선 사항 (Short-term, 1주 이내)
+      ## 장기 개선 사항 (Long-term, 1개월 이내)
+      ## 재발 방지 대책
+    agent: ops-lead
+    depends_on: [log-analysis, metrics-analysis, infra-analysis, mesh-analysis]
+
+workflow: sequential
 synthesis_strategy: structured
