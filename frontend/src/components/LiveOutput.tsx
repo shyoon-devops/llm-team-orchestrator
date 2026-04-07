@@ -38,9 +38,17 @@ function formatClaudeEvent(ev: Record<string, unknown>): OutputLine | null {
         const name = String(c.name || "tool");
         const input = c.input as Record<string, unknown> | undefined;
         let detail = "";
-        if (input?.file_path) detail = String(input.file_path);
-        else if (input?.command) detail = String(input.command).slice(0, 80);
+        if (input?.file_path) {
+          detail = String(input.file_path);
+          if (input?.content) {
+            const size = String(input.content).length;
+            detail += ` (${size > 1000 ? `${(size/1024).toFixed(1)}KB` : `${size}B`})`;
+          }
+        }
+        else if (input?.command) detail = `$ ${String(input.command).slice(0, 80)}`;
         else if (input?.pattern) detail = String(input.pattern);
+        else if (input?.query) detail = String(input.query).slice(0, 60);
+        else detail = Object.keys(input || {}).join(", ");
         return { icon: "🔧", label: name, text: detail, color: "#7ecfff", lane: "", timestamp: "" };
       }
     }
@@ -196,7 +204,7 @@ function parseStreamLine(rawLine: string): OutputLine | null {
   }
 
   // 알 수 없는 JSON 이벤트 — pretty-print
-  return { icon: "📋", label: t || "json", text: JSON.stringify(ev, null, 2), color: "#8b949e", lane: "", timestamp: "" };
+  return { icon: "📋", label: t || "event", text: "", color: "#8b949e", lane: "", timestamp: "" };
 }
 
 /* ── 컴포넌트 ── */
