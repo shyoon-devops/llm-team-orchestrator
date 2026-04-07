@@ -22,7 +22,7 @@ interface SubtaskListProps {
   selectedId: string | null;
 }
 
-function formatElapsed(started: string | null, completed: string | null, state: string): string {
+function formatElapsed(started: string | null, completed: string | null, _state: string): string {
   if (!started) return "--";
   const start = new Date(started).getTime();
   if (isNaN(start)) return "--";

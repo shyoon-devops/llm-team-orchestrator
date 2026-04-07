@@ -220,7 +220,7 @@ export function LiveOutput({ events, taskId, subtaskId }: LiveOutputProps) {
       if (event.type !== "agent.output") continue;
 
       // 중복 방지: timestamp+line 해시로 이미 처리한 이벤트 스킵
-      const eventKey = `${event.timestamp}-${(event.payload || {}).subtask_id || ""}-${((event.payload || {}).line || "").slice(0, 50)}`;
+      const eventKey = `${event.timestamp}-${(event.payload || {}).subtask_id || ""}-${String((event.payload || {}).line || "").slice(0, 50)}`;
       if (processedRef.current.has(eventKey)) continue;
       processedRef.current.add(eventKey);
 
