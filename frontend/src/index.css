@@ -991,3 +991,12 @@ body {
   padding-left: 20px;
   margin: 4px 0;
 }
+
+/* SubtaskResultViewer */
+.subtask-section { margin-bottom: 16px; }
+.subtask-section-title { margin: 0 0 8px 0; color: var(--text-secondary); }
+.subtask-checklist-list { font-size: 13px; }
+.subtask-checklist-item { padding: 4px 0; display: flex; gap: 8px; }
+.subtask-checklist-item.done { color: var(--text-muted); }
+.subtask-checklist-item.done .checklist-item-title { text-decoration: line-through; opacity: 0.7; }
+.subtask-error { color: var(--accent-red); margin-bottom: 8px; }
