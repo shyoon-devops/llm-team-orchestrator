@@ -11,28 +11,24 @@ dependencies = [
     # === 오케스트레이션 ===
     "langgraph>=0.6.0,<1.0.0",           # StateGraph, 조건부 엣지, 체크포인터
     "langchain-core>=0.3.0,<1.0.0",      # LangGraph 의존성 (BaseMessage 등)
-
     # === 모델 추상화 ===
     "litellm>=1.60.0,<2.0.0",            # 100+ 프로바이더, Router 로드밸런싱
-
     # === 데이터 검증 ===
     "pydantic>=2.10.0,<3.0.0",           # 입출력 스키마 런타임 검증
     "pydantic-settings>=2.7.0,<3.0.0",   # 환경변수 기반 설정 로딩
-
     # === API 서버 ===
     "fastapi>=0.115.0,<1.0.0",           # REST + WebSocket API
     "uvicorn[standard]>=0.32.0",         # ASGI 서버
-
     # === CLI 인터페이스 ===
     "typer>=0.15.0,<1.0.0",              # CLI 앱 프레임워크
     "rich>=13.9.0",                       # 터미널 출력 포맷팅
     "httpx>=0.27.0",                      # 비동기 HTTP 클라이언트
-
     # === 유틸리티 ===
     "structlog>=24.4.0",                  # 구조화된 로깅
     "tenacity>=9.0.0",                    # 범용 재시도 데코레이터
     "aiofiles>=24.1.0",                   # 비동기 파일 I/O (아티팩트 스토어)
     "pyyaml>=6.0.0",                      # YAML 프리셋 파일 파싱
+    "mcp>=1.27.0",
 ]
 
 [project.optional-dependencies]

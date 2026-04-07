@@ -1,24 +1,94 @@
 # presets/teams/incident-analysis-team.yaml
 name: incident-analysis-team
-description: "프로덕션 인시던트 분석 팀 — ELK 로그 분석을 통해 종합 보고서 생성"
+description: "프로덕션 인시던트 분석 팀 — ELK/Grafana/K8s/Istio 병렬 분석 → 종합 보고서"
 
 agents:
   elk:
     preset: elk-analyst
     overrides:
       limits:
-        timeout: 180
+        timeout: 300
       persona:
         constraints:
           - "최근 30분 로그에 집중한다"
           - "5xx 에러, timeout, connection refused 패턴을 우선 분석한다"
+  metrics:
+    preset: metrics-analyst
+  k8s:
+    preset: k8s-analyst
+  istio:
+    preset: istio-analyst
 
 tasks:
   log-analysis:
     description: |
-      ELK에서 에러 로그를 분석한다.
-      대상: 관련 서비스의 에러 패턴, 빈도, 타임라인을 파악한다.
+      ELK에서 에러 로그를 분석하라.
+
+      MCP 도구를 사용하여 다음을 수행:
+      1. search_logs 도구로 최근 에러 로그를 검색한다
+      2. get_error_summary 도구로 서비스별 에러 코드 분포를 확인한다
+      3. get_log_sample 도구로 주요 에러 샘플을 수집한다
+
+      분석 결과에 반드시 포함:
+      - 에러 발생 타임라인
+      - 에러 메시지 패턴 분류
+      - 영향 받는 서비스 목록
+      - 근본 원인 추정
     agent: elk
+    depends_on: []
+
+  metrics-analysis:
+    description: |
+      Grafana/Prometheus 메트릭을 분석하라.
+
+      MCP 도구를 사용하여 다음을 수행:
+      1. query_metrics 도구로 http_request_duration_seconds_p99 메트릭을 조회한다
+      2. query_metrics 도구로 http_requests_total_5xx_rate 메트릭을 조회한다
+      3. query_metrics 도구로 db_connection_pool_active 메트릭을 조회한다
+      4. get_active_alerts 도구로 현재 활성 알림을 확인한다
+      5. get_dashboard_summary 도구로 대시보드 요약을 확인한다
+
+      분석 결과에 반드시 포함:
+      - 메트릭 변곡점(spike 시작 시각)
+      - 정상 baseline 대비 변화량
+      - 활성 알림 목록과 심각도
+    agent: metrics
+    depends_on: []
+
+  infra-analysis:
+    description: |
+      Kubernetes 클러스터 상태를 분석하라.
+
+      MCP 도구를 사용하여 다음을 수행:
+      1. list_pods 도구로 production 네임스페이스의 Pod 상태를 확인한다
+      2. get_pod_logs 도구로 비정상 Pod의 로그를 확인한다
+      3. describe_resource 도구로 문제 Pod의 Events를 확인한다
+      4. get_node_status 도구로 노드 리소스 사용량을 확인한다
+
+      분석 결과에 반드시 포함:
+      - CrashLoopBackOff/OOMKilled Pod 목록
+      - 재시작 횟수와 패턴
+      - 노드별 리소스 사용률
+      - 최근 Events 요약
+    agent: k8s
+    depends_on: []
+
+  mesh-analysis:
+    description: |
+      Istio 서비스 메시 상태를 분석하라.
+
+      MCP 도구를 사용하여 다음을 수행:
+      1. get_circuit_breaker_status 도구로 서킷 브레이커 상태를 확인한다
+      2. get_service_metrics 도구로 서비스 간 요청/에러율을 확인한다
+      3. get_destination_rules 도구로 트래픽 정책을 확인한다
+      4. get_virtual_services 도구로 라우팅 규칙을 확인한다
+
+      분석 결과에 반드시 포함:
+      - 서킷 브레이커 발동 서비스와 시각
+      - 서비스 간 에러율 매트릭스
+      - cascade failure 경로 추적
+      - 현재 트래픽 정책 평가
+    agent: istio
     depends_on: []
 
 workflow: parallel

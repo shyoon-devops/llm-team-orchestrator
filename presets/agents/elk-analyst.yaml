@@ -17,19 +17,10 @@ persona:
     - "민감한 데이터(개인정보, 토큰)는 마스킹한다"
 
 execution:
-  mode: mcp
-  preferred_cli: ""
+  mode: cli
+  preferred_cli: claude
+  fallback_cli: []
   model_override: ""
-
-mcp_servers:
-  elasticsearch:
-    command: "npx"
-    args:
-      - "-y"
-      - "@modelcontextprotocol/server-elasticsearch"
-    env:
-      ELASTICSEARCH_URL: "${ELASTICSEARCH_URL}"
-      ELASTICSEARCH_API_KEY: "${ELASTICSEARCH_API_KEY}"
 
 tools:
   allowed: []
