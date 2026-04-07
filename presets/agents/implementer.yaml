@@ -24,7 +24,7 @@ execution:
   fallback_cli:
     - gemini
     - claude
-  model_override: ""
+  model_override: claude-sonnet-4-20250514
 
 tools:
   allowed: []

@@ -23,7 +23,7 @@ execution:
   fallback_cli:
     - gemini
     - claude
-  model_override: ""
+  model_override: claude-haiku-4-5-20251001
 
 tools:
   allowed: []
