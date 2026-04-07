@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import Markdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 interface TaskDetail {
   id: string;
@@ -148,8 +149,8 @@ export function TaskDetailModal({ taskId, onClose }: TaskDetailModalProps) {
                   <div style={{ fontWeight: 600, marginBottom: 4, fontSize: 12, color: "var(--text-secondary)" }}>
                     DESCRIPTION
                   </div>
-                  <div className="result-viewer">
-                    <Markdown>{detail.description}</Markdown>
+                  <div className="result-viewer markdown-content">
+                    <Markdown remarkPlugins={[remarkGfm]}>{detail.description}</Markdown>
                   </div>
                 </div>
               )}
@@ -160,8 +161,8 @@ export function TaskDetailModal({ taskId, onClose }: TaskDetailModalProps) {
                   <div style={{ fontWeight: 600, marginBottom: 4, fontSize: 12, color: "var(--text-secondary)" }}>
                     RESULT
                   </div>
-                  <div className="result-viewer">
-                    <Markdown>{detail.result}</Markdown>
+                  <div className="result-viewer markdown-content">
+                    <Markdown remarkPlugins={[remarkGfm]}>{detail.result}</Markdown>
                   </div>
                 </div>
               )}

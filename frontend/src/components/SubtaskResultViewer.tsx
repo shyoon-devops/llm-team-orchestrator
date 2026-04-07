@@ -1,4 +1,5 @@
 import Markdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import type { SubtaskInfo } from "./SubtaskList";
 
 interface SubtaskResultViewerProps {
@@ -27,7 +28,7 @@ export function SubtaskResultViewer({ subtask }: SubtaskResultViewerProps) {
             Description
           </h4>
           <div className="markdown-content">
-            <Markdown>{subtask.description || "No description"}</Markdown>
+            <Markdown remarkPlugins={[remarkGfm]}>{subtask.description || "No description"}</Markdown>
           </div>
         </div>
 
@@ -43,7 +44,7 @@ export function SubtaskResultViewer({ subtask }: SubtaskResultViewerProps) {
               Result
             </h4>
             <div className="markdown-content">
-              <Markdown>{subtask.result}</Markdown>
+              <Markdown remarkPlugins={[remarkGfm]}>{subtask.result}</Markdown>
             </div>
           </div>
         ) : (

@@ -6,6 +6,28 @@ interface KanbanBoardProps {
   board: BoardState | null;
 }
 
+const LANE_COLORS: Record<string, string> = {
+  ceo: '#f85149',
+  architect: '#bc8cff',
+  implementer: '#58a6ff',
+  reviewer: '#3fb950',
+  tester: '#d29922',
+  designer: '#f778ba',
+  planner: '#79c0ff',
+  finance: '#7ee787',
+  sales: '#d2a8ff',
+  infra: '#ffa657',
+  'ops-lead': '#ff7b72',
+  'elk-analyst': '#ffa657',
+  'metrics-analyst': '#79c0ff',
+  'k8s-analyst': '#7ee787',
+  'istio-analyst': '#d2a8ff',
+};
+
+function getLaneColor(lane: string): string {
+  return LANE_COLORS[lane] || '#8b949e';
+}
+
 const COLUMNS: { key: TaskState; label: string }[] = [
   { key: "backlog", label: "Backlog" },
   { key: "todo", label: "Todo" },
@@ -34,7 +56,7 @@ export function KanbanBoard({ board }: KanbanBoardProps) {
   }
 
   // Flatten all tasks from all lanes into columns by state
-  const columns: Record<TaskState, Array<{ id: string; title: string; lane: string; assignedTo: string | null }>> = {
+  const columns: Record<TaskState, Array<{ id: string; title: string; lane: string; assignedTo: string | null; state: TaskState }>> = {
     backlog: [],
     todo: [],
     in_progress: [],
@@ -51,6 +73,7 @@ export function KanbanBoard({ board }: KanbanBoardProps) {
             title: task.title,
             lane: laneName,
             assignedTo: task.assigned_to,
+            state: state as TaskState,
           });
         }
       }
@@ -77,10 +100,14 @@ export function KanbanBoard({ board }: KanbanBoardProps) {
                 <div
                   key={task.id}
                   className="kanban-card"
-                  style={{ cursor: "pointer" }}
+                  style={{
+                    cursor: "pointer",
+                    borderLeft: `3px solid ${getLaneColor(task.lane)}`,
+                  }}
                   onClick={() => setSelectedTaskId(task.id)}
                 >
                   <div className="kanban-card-title">
+                    {task.state === "in_progress" && <span className="kanban-card-spinner" style={{ marginRight: 6 }} />}
                     {(task.title.split("\n")[0] || "").slice(0, 50) + (task.title.length > 50 ? "..." : "")}
                   </div>
                   <div className="kanban-card-meta">

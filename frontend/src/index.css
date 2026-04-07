@@ -241,6 +241,12 @@ body {
   padding: 8px 10px;
   margin-bottom: 6px;
   font-size: 12px;
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
+}
+
+.kanban-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 }
 
 .kanban-card-title {
@@ -490,4 +496,77 @@ body {
   color: var(--text-muted);
   padding: 24px;
   font-size: 13px;
+}
+
+/* Spinner animation */
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.kanban-card-spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent-blue);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  display: inline-block;
+  vertical-align: middle;
+}
+
+.subtask-spinner {
+  width: 10px;
+  height: 10px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent-blue);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  display: inline-block;
+  vertical-align: middle;
+  margin-right: 4px;
+}
+
+/* Markdown content improvements */
+.markdown-content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 8px 0;
+  font-size: 13px;
+}
+
+.markdown-content th,
+.markdown-content td {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  text-align: left;
+}
+
+.markdown-content th {
+  background: var(--bg-tertiary);
+  font-weight: 600;
+}
+
+.markdown-content code {
+  background: var(--bg-tertiary);
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 12px;
+}
+
+.markdown-content pre {
+  background: var(--bg-tertiary);
+  padding: 12px;
+  border-radius: 6px;
+  overflow-x: auto;
+  margin: 8px 0;
+}
+
+.markdown-content h1, .markdown-content h2, .markdown-content h3 {
+  margin-top: 16px;
+  margin-bottom: 8px;
+}
+
+.markdown-content ul, .markdown-content ol {
+  padding-left: 20px;
+  margin: 4px 0;
 }
