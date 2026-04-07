@@ -581,6 +581,42 @@ class OrchestratorEngine:
         executor.cli_name = "claude"  # type: ignore[attr-defined]
         return executor
 
+    def _create_fallback_executors(
+        self,
+        preset_name: str,
+        *,
+        cwd: str | None = None,
+    ) -> list[AgentExecutor]:
+        """프리셋의 fallback_cli 목록으로 폴백용 executor들을 생성한다."""
+        try:
+            preset = self._preset_registry.load_agent_preset(preset_name)
+        except KeyError:
+            return []
+
+        fallback_clis = getattr(preset, "fallback_cli", [])
+        if isinstance(fallback_clis, str):
+            fallback_clis = [fallback_clis] if fallback_clis else []
+
+        executors: list[AgentExecutor] = []
+        persona = preset.persona.to_system_prompt() if preset.persona else ""
+        timeout = preset.limits.timeout if preset.limits else 300
+
+        for cli_name in fallback_clis:
+            try:
+                adapter = self._adapter_factory.create(cli_name)
+                config = AdapterConfig(timeout=timeout, working_dir=cwd)
+                executor = CLIAgentExecutor(
+                    adapter=adapter,
+                    config=config,
+                    persona_prompt=persona,
+                )
+                executor.cli_name = cli_name  # type: ignore[attr-defined]
+                executors.append(executor)
+            except Exception:
+                logger.warning("fallback_executor_create_failed", cli=cli_name)
+
+        return executors
+
     async def _execute_pipeline(self, pipeline: Pipeline) -> None:
         """파이프라인의 전체 생명주기를 실행하는 내부 코루틴.
 
@@ -730,6 +766,7 @@ class OrchestratorEngine:
                 worker_id = f"worker-{task_id[:8]}-{lane}"
                 cwd = worktree_paths.get(lane)
                 executor = self._create_executor_for_preset(lane, cwd=cwd)
+                fallback_executors = self._create_fallback_executors(lane, cwd=cwd)
 
                 worker = AgentWorker(
                     worker_id=worker_id,
@@ -740,6 +777,7 @@ class OrchestratorEngine:
                     poll_interval=0.2,
                     show_output=self.config.show_cli_output,
                     stream_output=self.config.stream_cli_output,
+                    fallback_executors=fallback_executors,
                 )
                 self._workers[worker_id] = worker
                 pipeline_workers.append(worker_id)

@@ -40,6 +40,7 @@ class AgentWorker:
         poll_interval: float = 1.0,
         show_output: bool = False,
         stream_output: bool = True,
+        fallback_executors: list[Any] | None = None,
     ) -> None:
         """
         Args:
@@ -51,6 +52,7 @@ class AgentWorker:
             poll_interval: 태스크 폴링 간격 (초).
             show_output: CLI stdout 실시간 표시 여부.
             stream_output: CLI 출력을 AGENT_OUTPUT 이벤트로 스트리밍 여부.
+            fallback_executors: 폴백용 추가 executor 목록 (실패 시 순서대로 시도).
         """
         self.worker_id = worker_id
         self.lane = lane
@@ -60,6 +62,7 @@ class AgentWorker:
         self.poll_interval = poll_interval
         self._show_output = show_output
         self._stream_output = stream_output
+        self._fallback_executors = fallback_executors or []
         self._running = False
         self._task: asyncio.Task[None] | None = None
         self._tasks_completed = 0
@@ -244,15 +247,16 @@ class AgentWorker:
         During long-running executor.run() calls, emit WORKER_HEARTBEAT
         every 10 seconds with elapsed_ms and timeout_ms.
         CLI 출력을 라인 단위로 AGENT_OUTPUT 이벤트로 스트리밍한다.
+        실패 시 fallback executor로 재시도한다.
         """
         from orchestrator.core.models.schemas import AgentResult
 
         enriched_prompt = await self._build_prompt(task)
 
-        # 스트리밍 콜백 주입
+        # 스트리밍 콜백 정의
         async def _on_cli_output(line: str, stream: str) -> None:
             if not line.strip():
-                return  # 빈 라인 무시
+                return
             await self.event_bus.emit(
                 OrchestratorEvent(
                     type=EventType.AGENT_OUTPUT,
@@ -267,52 +271,108 @@ class AgentWorker:
                 )
             )
 
-        if self._stream_output and hasattr(self.executor, "_on_output"):
-            self.executor._on_output = _on_cli_output
+        # 시도할 executor 목록: primary + fallbacks
+        executors = [self.executor, *self._fallback_executors]
+        last_error: Exception | None = None
 
-        # 프리셋의 timeout 사용 (executor.config에 설정됨), 없으면 300s 기본값
-        exec_timeout = 300
-        if hasattr(self.executor, "config") and self.executor.config:
-            exec_timeout = getattr(self.executor.config, "timeout", 300)
+        for idx, executor in enumerate(executors):
+            cli_name = getattr(executor, "cli_name", "unknown")
 
-        exec_task = asyncio.create_task(
-            self.executor.run(
-                enriched_prompt,
-                timeout=exec_timeout,
-                context=None,
-            )
-        )
-
-        heartbeat_task = asyncio.create_task(self._heartbeat_loop(task.pipeline_id, task.id))
-
-        try:
-            result: AgentResult = await exec_task
-
-            # CLI stdout에서 코드 블록 추출 → 파일 저장
-            cwd = getattr(self.executor, '_cwd', None)
-            if not cwd:
-                config = getattr(self.executor, 'config', None)
-                if config:
-                    cwd = getattr(config, 'working_dir', None)
-            if cwd and result.output:
-                from orchestrator.core.file_extractor import (
-                    extract_files_from_output,
+            # 폴백 이벤트 발행
+            if idx > 0:
+                logger.warning(
+                    "fallback_triggered",
+                    worker_id=self.worker_id,
+                    failed_cli=getattr(executors[idx - 1], "cli_name", "unknown"),
+                    fallback_cli=cli_name,
+                    attempt=idx + 1,
+                    error=str(last_error)[:200],
+                )
+                await self.event_bus.emit(
+                    OrchestratorEvent(
+                        type=EventType.FALLBACK_TRIGGERED,
+                        task_id=task.pipeline_id,
+                        node=self.worker_id,
+                        data={
+                            "subtask_id": task.id,
+                            "failed_cli": getattr(executors[idx - 1], "cli_name", "unknown"),
+                            "fallback_cli": cli_name,
+                            "attempt": idx + 1,
+                            "error": str(last_error)[:200],
+                        },
+                    )
                 )
 
-                files = extract_files_from_output(result.output, cwd)
-                if files:
-                    logger.info(
-                        "files_extracted_from_output",
-                        task_id=task.id,
-                        count=len(files),
-                        files=files,
+            # 스트리밍 콜백 주입
+            if self._stream_output and hasattr(executor, "_on_output"):
+                executor._on_output = _on_cli_output
+
+            exec_timeout = 300
+            if hasattr(executor, "config") and executor.config:
+                exec_timeout = getattr(executor.config, "timeout", 300)
+
+            heartbeat_task = asyncio.create_task(
+                self._heartbeat_loop(task.pipeline_id, task.id)
+            )
+
+            try:
+                result: AgentResult = await executor.run(
+                    enriched_prompt,
+                    timeout=exec_timeout,
+                    context=None,
+                )
+
+                # 폴백 성공 이벤트
+                if idx > 0:
+                    await self.event_bus.emit(
+                        OrchestratorEvent(
+                            type=EventType.FALLBACK_SUCCEEDED,
+                            task_id=task.pipeline_id,
+                            node=self.worker_id,
+                            data={
+                                "subtask_id": task.id,
+                                "cli": cli_name,
+                                "attempt": idx + 1,
+                            },
+                        )
                     )
 
-            return result
-        finally:
-            heartbeat_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await heartbeat_task
+                # CLI stdout에서 코드 블록 추출 → 파일 저장
+                cwd = getattr(executor, '_cwd', None)
+                if not cwd:
+                    config = getattr(executor, 'config', None)
+                    if config:
+                        cwd = getattr(config, 'working_dir', None)
+                if cwd and result.output:
+                    from orchestrator.core.file_extractor import (
+                        extract_files_from_output,
+                    )
+
+                    files = extract_files_from_output(result.output, cwd)
+                    if files:
+                        logger.info(
+                            "files_extracted_from_output",
+                            task_id=task.id,
+                            count=len(files),
+                            files=files,
+                        )
+
+                return result
+            except Exception as exc:
+                last_error = exc
+                logger.warning(
+                    "executor_failed",
+                    worker_id=self.worker_id,
+                    cli=cli_name,
+                    error=str(exc)[:200],
+                )
+            finally:
+                heartbeat_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await heartbeat_task
+
+        # 모든 executor 실패
+        raise last_error or RuntimeError("All executors failed")
 
     async def _heartbeat_loop(self, pipeline_id: str, task_id: str) -> None:
         """Emit heartbeat events every 10 seconds."""

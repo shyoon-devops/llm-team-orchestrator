@@ -21,7 +21,9 @@ persona:
 execution:
   mode: cli
   preferred_cli: codex
-  fallback_cli: claude
+  fallback_cli:
+    - gemini
+    - claude
   model_override: ""
 
 tools:
