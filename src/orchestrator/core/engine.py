@@ -848,19 +848,21 @@ class OrchestratorEngine:
             review_iteration = 0
             execution_start = time.monotonic()
 
-            while not self._board.is_all_done(task_id):
+            while True:
                 # 취소 확인
                 current = self._pipelines.get(task_id)
                 if current and current.status == PipelineStatus.CANCELLED:
                     return
 
-                # Streaming QualityGate: 완료된 reviewer 태스크 즉시 평가
+                # QualityGate: 완료된 reviewer/auditor 태스크 평가
                 if quality_gate is not None and review_iteration < max_review_iterations:
                     all_pipeline_tasks = self._board.get_results(task_id)
                     for rt in all_pipeline_tasks:
                         if rt.id in evaluated_reviewer_ids:
                             continue
                         if rt.lane not in ("reviewer", "auditor"):
+                            continue
+                        if rt.state.value != "done":
                             continue
                         if not rt.result:
                             continue
@@ -875,8 +877,9 @@ class OrchestratorEngine:
                                 task_id=task_id,
                                 reviewer_task=rt.id,
                                 iteration=review_iteration,
+                                feedback=verdict.feedback[:200],
                             )
-                            # implementer 재작업 태스크 생성
+                            # implementer 재작업 태스크
                             rework_id = generate_id("rework")
                             rework_task = TaskItem(
                                 id=rework_id,
@@ -906,6 +909,10 @@ class OrchestratorEngine:
                                 pipeline_id=task_id,
                             )
                             await self._board.submit(re_review_task)
+
+                # 모든 태스크 완료 확인 (QG rework 생성 후 재확인)
+                if self._board.is_all_done(task_id):
+                    break
 
                 await asyncio.sleep(0.1)
 

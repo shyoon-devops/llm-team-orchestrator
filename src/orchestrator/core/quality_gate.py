@@ -59,28 +59,29 @@ class QualityGate:
         self, result: str, role: str,
     ) -> QualityVerdict:
         """JSON verdict 파싱 후 키워드 fallback."""
-        # 1차: JSON verdict
-        for line in result.strip().split("\n")[:3]:
+        # 1차: JSON verdict — 전체 결과에서 검색 (첫 번째 발견 사용)
+        for line in result.strip().split("\n"):
             line = line.strip()
-            if line.startswith("{"):
-                try:
-                    data = json.loads(line)
-                    if "verdict" in data:
-                        approved = data["verdict"].lower() in (
-                            "approve", "approved", "lgtm",
-                        )
-                        logger.info(
-                            "quality_gate_json_verdict",
-                            role=role,
-                            verdict=data["verdict"],
-                            approved=approved,
-                        )
-                        return QualityVerdict(
-                            approved=approved,
-                            feedback=data.get("feedback", ""),
-                        )
-                except (json.JSONDecodeError, AttributeError):
-                    continue
+            if not line.startswith("{"):
+                continue
+            try:
+                data = json.loads(line)
+                if "verdict" in data:
+                    approved = data["verdict"].lower() in (
+                        "approve", "approved", "lgtm",
+                    )
+                    logger.info(
+                        "quality_gate_json_verdict",
+                        role=role,
+                        verdict=data["verdict"],
+                        approved=approved,
+                    )
+                    return QualityVerdict(
+                        approved=approved,
+                        feedback=data.get("feedback", ""),
+                    )
+            except (json.JSONDecodeError, AttributeError):
+                continue
 
         # 2차: 키워드 fallback
         return self._evaluate_keyword(result, role)
