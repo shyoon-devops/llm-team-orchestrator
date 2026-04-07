@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import signal
 import time
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
@@ -135,6 +136,7 @@ class CLIAdapter(ABC):
             stdin=DEVNULL,
             env=env,
             cwd=cwd,
+            start_new_session=True,  # 프로세스 그룹 생성 → 자식까지 킬 가능
         )
 
         try:
@@ -150,7 +152,11 @@ class CLIAdapter(ABC):
                 stdout_str = stdout_bytes.decode() if stdout_bytes else ""
                 stderr_str = stderr_bytes.decode() if stderr_bytes else ""
         except TimeoutError:
-            proc.kill()
+            # 프로세스 그룹 전체 kill (자식 프로세스 포함)
+            try:
+                os.killpg(proc.pid, signal.SIGTERM)
+            except (ProcessLookupError, PermissionError):
+                proc.kill()
             await proc.wait()
             raise CLITimeoutError(
                 f"{self.cli_name} timed out after {config.timeout}s",

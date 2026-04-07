@@ -270,10 +270,15 @@ class AgentWorker:
         if self._stream_output and hasattr(self.executor, "_on_output"):
             self.executor._on_output = _on_cli_output
 
+        # 프리셋의 timeout 사용 (executor.config에 설정됨), 없으면 300s 기본값
+        exec_timeout = 300
+        if hasattr(self.executor, "config") and self.executor.config:
+            exec_timeout = getattr(self.executor.config, "timeout", 300)
+
         exec_task = asyncio.create_task(
             self.executor.run(
                 enriched_prompt,
-                timeout=300,
+                timeout=exec_timeout,
                 context=None,
             )
         )
