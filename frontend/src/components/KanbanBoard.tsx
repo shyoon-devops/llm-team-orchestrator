@@ -71,7 +71,7 @@ export function KanbanBoard({ board }: KanbanBoardProps) {
               {columns[col.key].map((task) => (
                 <div key={task.id} className="kanban-card">
                   <div className="kanban-card-title">
-                    {task.title.length > 50 ? task.title.slice(0, 50) + "..." : task.title}
+                    {(task.title.split("\n")[0] || "").slice(0, 50) + (task.title.length > 50 ? "..." : "")}
                   </div>
                   <div className="kanban-card-meta">
                     {task.lane}

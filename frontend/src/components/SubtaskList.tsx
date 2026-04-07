@@ -58,7 +58,7 @@ export function SubtaskList({ subtasks, onSelect, selectedId }: SubtaskListProps
             }}
           >
             <td style={{ fontWeight: 600 }}>{st.assigned_preset || "default"}</td>
-            <td>{st.description.length > 80 ? st.description.slice(0, 80) + "..." : st.description}</td>
+            <td>{(st.description.split("\n")[0] || "").slice(0, 80) + (st.description.length > 80 ? "..." : "")}</td>
             <td>
               <span className={`status-badge ${st.state}`}>{st.state}</span>
             </td>
