@@ -1,10 +1,14 @@
-"""Typer CLI application."""
+"""Typer CLI application — HTTP client mode.
+
+All commands communicate with the orchestrator server via REST API (httpx).
+The server must be running (`orchestrator serve`) before using other commands.
+"""
 
 from __future__ import annotations
 
 import asyncio
-import time
 
+import httpx
 import typer
 from rich.console import Console
 from rich.live import Live
@@ -18,6 +22,8 @@ app = typer.Typer(
 presets_app = typer.Typer(name="presets", help="프리셋 관리 명령어")
 app.add_typer(presets_app)
 
+_server_url: str = "http://localhost:8000"
+
 _STATUS_ICONS = {
     "done": "\u2705",
     "in_progress": "\U0001f504",
@@ -25,6 +31,64 @@ _STATUS_ICONS = {
     "todo": "\U0001f4cb",
     "failed": "\u274c",
 }
+
+
+@app.callback()
+def main(
+    server: str = typer.Option(
+        "http://localhost:8000",
+        "--server",
+        envvar="ORCHESTRATOR_SERVER_URL",
+        help="오케스트레이터 서버 URL",
+    ),
+) -> None:
+    """Agent Team Orchestrator CLI."""
+    global _server_url
+    _server_url = server.rstrip("/")
+
+
+def _client() -> httpx.AsyncClient:
+    """서버 URL 기반 AsyncClient를 생성한다."""
+    return httpx.AsyncClient(base_url=_server_url, timeout=30.0)
+
+
+def _handle_error(resp: httpx.Response) -> None:
+    """HTTP 에러를 CLI 에러로 변환한다.
+
+    Args:
+        resp: httpx 응답.
+
+    Raises:
+        typer.Exit: HTTP 에러 시.
+    """
+    if resp.is_success:
+        return
+    try:
+        body = resp.json()
+        detail = body.get("detail", resp.text)
+    except Exception:
+        detail = resp.text
+
+    if resp.status_code == 404:
+        console.print(f"[red]Not found:[/red] {detail}")
+    elif resp.status_code == 409:
+        console.print(f"[red]Conflict:[/red] {detail}")
+    elif resp.status_code == 422:
+        console.print(f"[red]Validation error:[/red] {detail}")
+    else:
+        console.print(f"[red]Server error ({resp.status_code}):[/red] {detail}")
+    raise typer.Exit(code=1)
+
+
+def _handle_connect_error() -> None:
+    """서버 연결 실패 시 에러 메시지를 출력한다.
+
+    Raises:
+        typer.Exit: 항상.
+    """
+    console.print(f"[red]Cannot connect to server at {_server_url}[/red]")
+    console.print("[dim]Hint: Start the server with 'orchestrator serve'[/dim]")
+    raise typer.Exit(code=1)
 
 
 def _build_progress_table(
@@ -85,32 +149,33 @@ def run(
     """태스크를 실행한다."""
 
     async def _run() -> None:
-        from orchestrator.core.engine import OrchestratorEngine
-        from orchestrator.core.models.pipeline import PipelineStatus
-
-        engine = OrchestratorEngine()
-        await engine.start()
         try:
-            pipeline = await engine.submit_task(
-                task,
-                team_preset=team_preset,
-                target_repo=repo,
-            )
-            console.print(f"[green]Pipeline created:[/green] {pipeline.task_id}")
-            console.print(f"[blue]Status:[/blue] {pipeline.status}")
+            async with _client() as client:
+                # Submit task
+                payload: dict = {"task": task}
+                if team_preset:
+                    payload["team_preset"] = team_preset
+                if repo:
+                    payload["target_repo"] = repo
 
-            if wait:
+                resp = await client.post("/api/tasks", json=payload)
+                _handle_error(resp)
+                pipeline = resp.json()
+                task_id = pipeline["task_id"]
+
+                console.print(f"[green]Pipeline created:[/green] {task_id}")
+                console.print(f"[blue]Status:[/blue] {pipeline.get('status', 'unknown')}")
+
+                if not wait:
+                    return
+
                 terminal_states = {
-                    PipelineStatus.COMPLETED,
-                    PipelineStatus.FAILED,
-                    PipelineStatus.PARTIAL_FAILURE,
-                    PipelineStatus.CANCELLED,
+                    "completed", "failed", "partial_failure", "cancelled",
                 }
                 elapsed = 0
-                progress_interval = engine.config.progress_interval
 
                 with Live(
-                    _build_progress_table(pipeline.task_id, task, {}, 0),
+                    _build_progress_table(task_id, task, {}, 0),
                     refresh_per_second=1,
                     console=console,
                     transient=True,
@@ -119,45 +184,52 @@ def run(
                         await asyncio.sleep(1)
                         elapsed += 1
 
-                        # 진행 상황 테이블 갱신
-                        if elapsed % max(1, progress_interval) == 0 or elapsed <= 3:
-                            board_state = engine.get_board_state()
-                            table = _build_progress_table(
-                                pipeline.task_id, task, board_state, elapsed,
-                            )
-                            live.update(table)
+                        # Board state for progress table
+                        board_resp = await client.get("/api/board")
+                        board_state = board_resp.json() if board_resp.is_success else {}
+                        table = _build_progress_table(
+                            task_id, task, board_state, elapsed,
+                        )
+                        live.update(table)
 
-                        current = await engine.get_pipeline(pipeline.task_id)
-                        if current and current.status in terminal_states:
-                            # 최종 테이블 표시
-                            board_state = engine.get_board_state()
-                            live.update(
-                                _build_progress_table(
-                                    pipeline.task_id, task, board_state, elapsed,
+                        # Check pipeline status
+                        status_resp = await client.get(f"/api/tasks/{task_id}")
+                        if status_resp.is_success:
+                            current = status_resp.json()
+                            if current.get("status") in terminal_states:
+                                # Final table update
+                                board_resp2 = await client.get("/api/board")
+                                if board_resp2.is_success:
+                                    board_state = board_resp2.json()
+                                live.update(
+                                    _build_progress_table(
+                                        task_id, task, board_state, elapsed,
+                                    )
                                 )
-                            )
-                            break
+                                break
                     else:
                         console.print(
                             f"[yellow]Timeout ({timeout}s) — still running[/yellow]"
                         )
 
-                # 최종 결과 (Live 밖에서 출력)
-                current = await engine.get_pipeline(pipeline.task_id)
-                if current:
-                    # 최종 상태 테이블 (영구 표시)
-                    board_state = engine.get_board_state()
+                # Final result (outside Live)
+                status_resp = await client.get(f"/api/tasks/{task_id}")
+                if status_resp.is_success:
+                    current = status_resp.json()
+                    board_resp = await client.get("/api/board")
+                    board_state = board_resp.json() if board_resp.is_success else {}
                     console.print(
                         _build_progress_table(
-                            pipeline.task_id, task, board_state, elapsed,
+                            task_id, task, board_state, elapsed,
                         )
                     )
-                    console.print(f"\n[blue]Final status:[/blue] {current.status}")
-                    if current.synthesis:
+                    console.print(f"\n[blue]Final status:[/blue] {current.get('status')}")
+                    synthesis = current.get("synthesis")
+                    if synthesis:
                         console.print("\n[bold]Synthesis Report:[/bold]")
-                        console.print(current.synthesis)
-        finally:
-            await engine.shutdown()
+                        console.print(synthesis)
+        except httpx.ConnectError:
+            _handle_connect_error()
 
     asyncio.run(_run())
 
@@ -169,15 +241,15 @@ def status(
     """파이프라인 상태를 조회한다."""
 
     async def _status() -> None:
-        from orchestrator.core.engine import OrchestratorEngine
-
-        engine = OrchestratorEngine()
-        pipeline = await engine.get_pipeline(task_id)
-        if pipeline is None:
-            console.print(f"[red]Pipeline not found:[/red] {task_id}")
-            raise typer.Exit(code=1)
-        console.print(f"[blue]Task:[/blue] {pipeline.task}")
-        console.print(f"[blue]Status:[/blue] {pipeline.status}")
+        try:
+            async with _client() as client:
+                resp = await client.get(f"/api/tasks/{task_id}")
+                _handle_error(resp)
+                pipeline = resp.json()
+                console.print(f"[blue]Task:[/blue] {pipeline.get('task', '')}")
+                console.print(f"[blue]Status:[/blue] {pipeline.get('status', '')}")
+        except httpx.ConnectError:
+            _handle_connect_error()
 
     asyncio.run(_status())
 
@@ -189,15 +261,15 @@ def cancel(
     """태스크를 취소한다."""
 
     async def _cancel() -> None:
-        from orchestrator.core.engine import OrchestratorEngine
-
-        engine = OrchestratorEngine()
-        cancelled = await engine.cancel_task(task_id)
-        if cancelled:
-            console.print(f"[green]Pipeline cancelled:[/green] {task_id}")
-        else:
-            console.print(f"[red]Cannot cancel:[/red] {task_id}")
-            raise typer.Exit(code=1)
+        try:
+            async with _client() as client:
+                resp = await client.delete(f"/api/tasks/{task_id}")
+                if resp.status_code == 204:
+                    console.print(f"[green]Pipeline cancelled:[/green] {task_id}")
+                else:
+                    _handle_error(resp)
+        except httpx.ConnectError:
+            _handle_connect_error()
 
     asyncio.run(_cancel())
 
@@ -209,19 +281,15 @@ def resume(
     """중단된 태스크를 재개한다."""
 
     async def _resume() -> None:
-        from orchestrator.core.engine import OrchestratorEngine
-
-        engine = OrchestratorEngine()
         try:
-            pipeline = await engine.resume_task(task_id)
-            console.print(f"[green]Pipeline resumed:[/green] {pipeline.task_id}")
-            console.print(f"[blue]Status:[/blue] {pipeline.status}")
-        except KeyError:
-            console.print(f"[red]Pipeline not found:[/red] {task_id}")
-            raise typer.Exit(code=1) from None
-        except ValueError as e:
-            console.print(f"[red]Cannot resume:[/red] {e}")
-            raise typer.Exit(code=1) from None
+            async with _client() as client:
+                resp = await client.post(f"/api/tasks/{task_id}/resume")
+                _handle_error(resp)
+                pipeline = resp.json()
+                console.print(f"[green]Pipeline resumed:[/green] {pipeline.get('task_id', task_id)}")
+                console.print(f"[blue]Status:[/blue] {pipeline.get('status', '')}")
+        except httpx.ConnectError:
+            _handle_connect_error()
 
     asyncio.run(_resume())
 
@@ -229,51 +297,72 @@ def resume(
 @app.command("config")
 def config_show() -> None:
     """현재 오케스트레이터 설정을 표시한다."""
-    from orchestrator.core.config.schema import OrchestratorConfig
 
-    config = OrchestratorConfig()
+    async def _config() -> None:
+        try:
+            async with _client() as client:
+                resp = await client.get("/api/config")
+                _handle_error(resp)
+                data = resp.json()
 
-    table = Table(title="Orchestrator Configuration")
-    table.add_column("Field", style="cyan")
-    table.add_column("Value", style="green")
-    table.add_column("Description", style="dim")
+                table = Table(title="Orchestrator Configuration")
+                table.add_column("Field", style="cyan")
+                table.add_column("Value", style="green")
+                table.add_column("Description", style="dim")
 
-    for field_name, field_info in OrchestratorConfig.model_fields.items():
-        value = getattr(config, field_name)
-        desc = field_info.description or ""
-        table.add_row(field_name, str(value), desc[:60])
+                for field_name, field_info in data.get("fields", {}).items():
+                    value = field_info.get("value", "")
+                    desc = field_info.get("description", "")
+                    table.add_row(field_name, str(value), desc[:60])
 
-    console.print(table)
+                console.print(table)
+        except httpx.ConnectError:
+            _handle_connect_error()
+
+    asyncio.run(_config())
 
 
 @app.command("agents")
 def agents_list() -> None:
     """등록된 에이전트 프리셋 목록과 설정을 표시한다."""
-    from orchestrator.core.engine import OrchestratorEngine
 
-    engine = OrchestratorEngine()
-    agent_presets = engine.list_agent_presets()
+    async def _agents() -> None:
+        try:
+            async with _client() as client:
+                resp = await client.get("/api/presets/agents")
+                _handle_error(resp)
+                data = resp.json()
+                presets = data.get("presets", [])
 
-    if not agent_presets:
-        console.print("[dim]No agent presets registered.[/dim]")
-        return
+                if not presets:
+                    console.print("[dim]No agent presets registered.[/dim]")
+                    return
 
-    for p in agent_presets:
-        table = Table(title=f"Agent: {p.name}")
-        table.add_column("Field", style="cyan", min_width=15)
-        table.add_column("Value", style="green")
-        table.add_row("CLI", p.preferred_cli or "auto")
-        table.add_row("Fallback", ", ".join(p.fallback_cli) if p.fallback_cli else "-")
-        table.add_row("Role", p.persona.role)
-        table.add_row("Goal", p.persona.goal)
-        table.add_row("Timeout", f"{p.limits.timeout}s")
-        table.add_row("Max Turns", str(p.limits.max_turns))
-        table.add_row("Tags", ", ".join(p.tags) if p.tags else "-")
-        if p.persona.constraints:
-            for i, c in enumerate(p.persona.constraints):
-                table.add_row(f"Constraint {i + 1}", c[:80])
-        console.print(table)
-        console.print()
+                for p in presets:
+                    table = Table(title=f"Agent: {p.get('name', '')}")
+                    table.add_column("Field", style="cyan", min_width=15)
+                    table.add_column("Value", style="green")
+                    table.add_row("CLI", p.get("preferred_cli") or "auto")
+                    fallback = p.get("fallback_cli", [])
+                    table.add_row("Fallback", ", ".join(fallback) if fallback else "-")
+                    persona = p.get("persona", {})
+                    table.add_row("Role", persona.get("role", ""))
+                    table.add_row("Goal", persona.get("goal", ""))
+                    limits = p.get("limits", {})
+                    table.add_row("Timeout", f"{limits.get('timeout', 300)}s")
+                    table.add_row("Max Turns", str(limits.get("max_turns", 0)))
+                    tags = p.get("tags", [])
+                    table.add_row("Tags", ", ".join(tags) if tags else "-")
+                    constraints = persona.get("constraints", [])
+                    if constraints:
+                        for i, c in enumerate(constraints):
+                            table.add_row(f"Constraint {i + 1}", str(c)[:80])
+                    console.print(table)
+                    console.print()
+        except httpx.ConnectError:
+            _handle_connect_error()
+
+    asyncio.run(_agents())
 
 
 @app.command("subtask")
@@ -285,50 +374,52 @@ def subtask_detail(
     from rich.markdown import Markdown
 
     async def _detail() -> None:
-        from orchestrator.core.engine import OrchestratorEngine
+        try:
+            async with _client() as client:
+                if not subtask_id:
+                    # Full subtask list
+                    resp = await client.get(f"/api/tasks/{task_id}/subtasks")
+                    _handle_error(resp)
+                    data = resp.json()
+                    subtasks = data.get("subtasks", [])
 
-        engine = OrchestratorEngine()
-        pipeline = await engine.get_pipeline(task_id)
-        if pipeline is None:
-            console.print(f"[red]Pipeline not found:[/red] {task_id}")
-            raise typer.Exit(code=1)
+                    table = Table(title=f"Subtasks for {task_id[:16]}")
+                    table.add_column("ID", style="cyan")
+                    table.add_column("Preset", style="green")
+                    table.add_column("CLI")
+                    table.add_column("Status")
+                    for st in subtasks:
+                        table.add_row(
+                            st.get("id", "")[:16],
+                            st.get("assigned_preset", ""),
+                            st.get("assigned_cli") or "-",
+                            st.get("state") or "pending",
+                        )
+                    console.print(table)
+                    return
 
-        if not subtask_id:
-            # 전체 서브태스크 목록
-            table = Table(title=f"Subtasks for {task_id[:16]}")
-            table.add_column("ID", style="cyan")
-            table.add_column("Preset", style="green")
-            table.add_column("CLI")
-            table.add_column("Status")
-            for st in pipeline.subtasks:
-                table.add_row(
-                    st.id[:16],
-                    st.assigned_preset,
-                    st.assigned_cli or "-",
-                    st.status or "pending",
+                # Specific subtask detail
+                resp = await client.get(
+                    f"/api/tasks/{task_id}/subtasks/{subtask_id}"
                 )
-            console.print(table)
-            return
+                _handle_error(resp)
+                found = resp.json()
 
-        # 특정 서브태스크 상세
-        found = next((st for st in pipeline.subtasks if st.id.startswith(subtask_id)), None)
-        if found is None:
-            console.print(f"[red]Subtask not found:[/red] {subtask_id}")
-            raise typer.Exit(code=1)
+                console.print(f"\n[bold]Subtask:[/bold] {found.get('id', '')}")
+                console.print(f"[blue]Preset:[/blue] {found.get('assigned_preset', '')}")
+                console.print(f"[blue]CLI:[/blue] {found.get('assigned_cli') or '-'}")
+                console.print()
 
-        console.print(f"\n[bold]Subtask:[/bold] {found.id}")
-        console.print(f"[blue]Preset:[/blue] {found.assigned_preset}")
-        console.print(f"[blue]CLI:[/blue] {found.assigned_cli or '-'}")
-        console.print()
+                description = found.get("description", "")
+                console.print("[bold]Description:[/bold]")
+                console.print(Markdown(description))
 
-        console.print("[bold]Description:[/bold]")
-        console.print(Markdown(found.description))
-
-        # Board에서 result 확인
-        board_task = engine._board.get_task(found.id)
-        if board_task and board_task.result:
-            console.print("\n[bold]Result:[/bold]")
-            console.print(Markdown(board_task.result))
+                result = found.get("result", "")
+                if result:
+                    console.print("\n[bold]Result:[/bold]")
+                    console.print(Markdown(result))
+        except httpx.ConnectError:
+            _handle_connect_error()
 
     asyncio.run(_detail())
 
@@ -336,40 +427,57 @@ def subtask_detail(
 @presets_app.command("list")
 def presets_list() -> None:
     """모든 프리셋 목록을 조회한다."""
-    from orchestrator.core.engine import OrchestratorEngine
 
-    engine = OrchestratorEngine()
+    async def _list() -> None:
+        try:
+            async with _client() as client:
+                # Fetch agents and teams in parallel
+                agents_resp, teams_resp = await asyncio.gather(
+                    client.get("/api/presets/agents"),
+                    client.get("/api/presets/teams"),
+                )
 
-    agent_presets = engine.list_agent_presets()
-    team_presets = engine.list_team_presets()
+                if agents_resp.is_success:
+                    agent_presets = agents_resp.json().get("presets", [])
+                    if agent_presets:
+                        table = Table(title="Agent Presets")
+                        table.add_column("Name")
+                        table.add_column("Description")
+                        table.add_column("CLI")
+                        for p in agent_presets:
+                            table.add_row(
+                                p.get("name", ""),
+                                p.get("description", ""),
+                                p.get("preferred_cli") or "auto",
+                            )
+                        console.print(table)
+                    else:
+                        console.print("[dim]No agent presets registered.[/dim]")
 
-    if agent_presets:
-        table = Table(title="Agent Presets")
-        table.add_column("Name")
-        table.add_column("Description")
-        table.add_column("CLI")
-        for p in agent_presets:
-            table.add_row(
-                p.name,
-                p.description,
-                p.preferred_cli or "auto",
-            )
-        console.print(table)
-    else:
-        console.print("[dim]No agent presets registered.[/dim]")
+                if teams_resp.is_success:
+                    team_presets = teams_resp.json().get("presets", [])
+                    if team_presets:
+                        team_table = Table(title="Team Presets")
+                        team_table.add_column("Name")
+                        team_table.add_column("Description")
+                        team_table.add_column("Workflow")
+                        team_table.add_column("Agents")
+                        for tp in team_presets:
+                            agents = tp.get("agents", {})
+                            agent_names = ", ".join(agents.keys())
+                            team_table.add_row(
+                                tp.get("name", ""),
+                                tp.get("description", ""),
+                                tp.get("workflow", ""),
+                                agent_names,
+                            )
+                        console.print(team_table)
+                    else:
+                        console.print("[dim]No team presets registered.[/dim]")
+        except httpx.ConnectError:
+            _handle_connect_error()
 
-    if team_presets:
-        team_table = Table(title="Team Presets")
-        team_table.add_column("Name")
-        team_table.add_column("Description")
-        team_table.add_column("Workflow")
-        team_table.add_column("Agents")
-        for tp in team_presets:
-            agent_names = ", ".join(tp.agents.keys())
-            team_table.add_row(tp.name, tp.description, tp.workflow, agent_names)
-        console.print(team_table)
-    else:
-        console.print("[dim]No team presets registered.[/dim]")
+    asyncio.run(_list())
 
 
 @presets_app.command("show")
@@ -377,63 +485,75 @@ def presets_show(
     name: str = typer.Argument(..., help="프리셋 이름"),
 ) -> None:
     """프리셋 상세를 조회한다."""
-    from orchestrator.core.engine import OrchestratorEngine
 
-    engine = OrchestratorEngine()
+    async def _show() -> None:
+        try:
+            async with _client() as client:
+                # Try agent preset first
+                resp = await client.get(f"/api/presets/agents/{name}")
+                if resp.status_code == 200:
+                    preset = resp.json()
+                    console.print(f"[bold]Agent Preset:[/bold] {preset.get('name', '')}")
+                    console.print(f"[blue]Description:[/blue] {preset.get('description', '')}")
+                    console.print(f"[blue]CLI:[/blue] {preset.get('preferred_cli') or 'auto'}")
+                    fallback = preset.get("fallback_cli", [])
+                    if fallback:
+                        console.print(f"[blue]Fallback:[/blue] {', '.join(fallback)}")
+                    tags = preset.get("tags", [])
+                    console.print(f"[blue]Tags:[/blue] {', '.join(tags)}")
+                    console.print()
+                    persona = preset.get("persona", {})
+                    console.print("[bold]Persona:[/bold]")
+                    console.print(f"  Role: {persona.get('role', '')}")
+                    console.print(f"  Goal: {persona.get('goal', '')}")
+                    backstory = persona.get("backstory", "")
+                    if backstory:
+                        console.print(f"  Backstory: {backstory.strip()}")
+                    constraints = persona.get("constraints", [])
+                    if constraints:
+                        console.print("  Constraints:")
+                        for c in constraints:
+                            console.print(f"    - {c}")
+                    console.print()
+                    limits = preset.get("limits", {})
+                    console.print("[bold]Limits:[/bold]")
+                    console.print(f"  Timeout: {limits.get('timeout', 300)}s")
+                    console.print(f"  Max turns: {limits.get('max_turns', 0)}")
+                    console.print(f"  Max iterations: {limits.get('max_iterations', 0)}")
+                    return
 
-    # Try agent preset first
-    try:
-        preset = engine.load_agent_preset(name)
-        console.print(f"[bold]Agent Preset:[/bold] {preset.name}")
-        console.print(f"[blue]Description:[/blue] {preset.description}")
-        console.print(f"[blue]CLI:[/blue] {preset.preferred_cli or 'auto'}")
-        if preset.fallback_cli:
-            console.print(f"[blue]Fallback:[/blue] {', '.join(preset.fallback_cli)}")
-        console.print(f"[blue]Tags:[/blue] {', '.join(preset.tags)}")
-        console.print()
-        console.print("[bold]Persona:[/bold]")
-        console.print(f"  Role: {preset.persona.role}")
-        console.print(f"  Goal: {preset.persona.goal}")
-        if preset.persona.backstory:
-            console.print(f"  Backstory: {preset.persona.backstory.strip()}")
-        if preset.persona.constraints:
-            console.print("  Constraints:")
-            for c in preset.persona.constraints:
-                console.print(f"    - {c}")
-        console.print()
-        console.print("[bold]Limits:[/bold]")
-        console.print(f"  Timeout: {preset.limits.timeout}s")
-        console.print(f"  Max turns: {preset.limits.max_turns}")
-        console.print(f"  Max iterations: {preset.limits.max_iterations}")
-        return
-    except KeyError:
-        pass
+                # Try team preset
+                resp = await client.get(f"/api/presets/teams/{name}")
+                if resp.status_code == 200:
+                    tp = resp.json()
+                    console.print(f"[bold]Team Preset:[/bold] {tp.get('name', '')}")
+                    console.print(f"[blue]Description:[/blue] {tp.get('description', '')}")
+                    console.print(f"[blue]Workflow:[/blue] {tp.get('workflow', '')}")
+                    console.print(f"[blue]Synthesis:[/blue] {tp.get('synthesis_strategy', '')}")
+                    console.print()
+                    console.print("[bold]Agents:[/bold]")
+                    for agent_name, agent_def in tp.get("agents", {}).items():
+                        overrides = agent_def.get("overrides")
+                        overrides_str = f" (overrides: {overrides})" if overrides else ""
+                        preset_name = agent_def.get("preset", "")
+                        console.print(f"  {agent_name}: preset={preset_name}{overrides_str}")
+                    console.print()
+                    console.print("[bold]Tasks:[/bold]")
+                    for task_name, task_def in tp.get("tasks", {}).items():
+                        deps = task_def.get("depends_on", [])
+                        deps_str = f" [depends: {', '.join(deps)}]" if deps else ""
+                        agent = task_def.get("agent", "")
+                        console.print(f"  {task_name}: agent={agent}{deps_str}")
+                        description = task_def.get("description", "").strip()
+                        console.print(f"    {description}")
+                    return
 
-    # Try team preset
-    try:
-        tp = engine.load_team_preset(name)
-        console.print(f"[bold]Team Preset:[/bold] {tp.name}")
-        console.print(f"[blue]Description:[/blue] {tp.description}")
-        console.print(f"[blue]Workflow:[/blue] {tp.workflow}")
-        console.print(f"[blue]Synthesis:[/blue] {tp.synthesis_strategy}")
-        console.print()
-        console.print("[bold]Agents:[/bold]")
-        for agent_name, agent_def in tp.agents.items():
-            overrides_str = f" (overrides: {agent_def.overrides})" if agent_def.overrides else ""
-            console.print(f"  {agent_name}: preset={agent_def.preset}{overrides_str}")
-        console.print()
-        console.print("[bold]Tasks:[/bold]")
-        for task_name, task_def in tp.tasks.items():
-            deps = ", ".join(task_def.depends_on)
-            deps_str = f" [depends: {deps}]" if task_def.depends_on else ""
-            console.print(f"  {task_name}: agent={task_def.agent}{deps_str}")
-            console.print(f"    {task_def.description.strip()}")
-        return
-    except KeyError:
-        pass
+                console.print(f"[red]Preset not found:[/red] {name}")
+                raise typer.Exit(code=1)
+        except httpx.ConnectError:
+            _handle_connect_error()
 
-    console.print(f"[red]Preset not found:[/red] {name}")
-    raise typer.Exit(code=1)
+    asyncio.run(_show())
 
 
 @app.command()
