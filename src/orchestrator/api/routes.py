@@ -206,6 +206,7 @@ async def list_subtasks(
             "error": board_task.error if board_task else "",
             "started_at": started,
             "completed_at": completed,
+            "checklist": [item.model_dump() for item in (board_task.checklist if board_task else [])],
         })
 
     return {"task_id": task_id, "subtasks": subtasks}
@@ -261,6 +262,7 @@ async def get_subtask(
         "files_changed": files,
         "tokens_used": worker_result.tokens_used if worker_result else 0,
         "duration_ms": worker_result.duration_ms if worker_result else 0,
+        "checklist": [item.model_dump() for item in (board_task.checklist if board_task else [])],
     }
 
 

@@ -57,7 +57,7 @@ export function KanbanBoard({ board }: KanbanBoardProps) {
   }
 
   // Flatten all tasks from all lanes into columns by state
-  const columns: Record<TaskState, Array<{ id: string; title: string; lane: string; assignedTo: string | null; state: TaskState }>> = {
+  const columns: Record<TaskState, Array<{ id: string; title: string; lane: string; assignedTo: string | null; state: TaskState; checklistDone: number; checklistTotal: number }>> = {
     backlog: [],
     todo: [],
     in_progress: [],
@@ -69,12 +69,15 @@ export function KanbanBoard({ board }: KanbanBoardProps) {
     for (const [state, tasks] of Object.entries(laneData)) {
       if (state in columns && Array.isArray(tasks)) {
         for (const task of tasks) {
+          const cl = task.checklist || [];
           columns[state as TaskState].push({
             id: task.id,
             title: task.title,
             lane: laneName,
             assignedTo: task.assigned_to,
             state: state as TaskState,
+            checklistDone: cl.filter((c: { status: string }) => c.status === "done").length,
+            checklistTotal: cl.length,
           });
         }
       }
@@ -115,6 +118,11 @@ export function KanbanBoard({ board }: KanbanBoardProps) {
                     {task.lane}
                     {task.assignedTo ? ` | ${task.assignedTo}` : ""}
                   </div>
+                  {task.checklistTotal > 0 && (
+                    <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2 }}>
+                      {"\u2705"} {task.checklistDone}/{task.checklistTotal}
+                    </div>
+                  )}
                 </div>
               ))}
               {columns[col.key].length === 0 && (

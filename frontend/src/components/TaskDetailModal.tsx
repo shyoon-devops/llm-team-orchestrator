@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import type { ChecklistItem } from "../types";
 import { extractTitle } from "../utils";
 
 interface TaskDetail {
@@ -21,6 +22,7 @@ interface TaskDetail {
   started_at: string | null;
   completed_at: string | null;
   pipeline_task: string;
+  checklist?: ChecklistItem[];
 }
 
 interface TaskDetailModalProps {
@@ -143,6 +145,30 @@ export function TaskDetailModal({ taskId, onClose }: TaskDetailModalProps) {
                   </tr>
                 </tbody>
               </table>
+
+              {/* Checklist */}
+              {detail.checklist && detail.checklist.length > 0 && (
+                <div style={{ marginBottom: 12 }}>
+                  <div style={{ fontWeight: 600, marginBottom: 4, fontSize: 12, color: "var(--text-secondary)" }}>
+                    CHECKLIST ({detail.checklist.filter(c => c.status === "done").length}/{detail.checklist.length})
+                  </div>
+                  <div style={{ fontSize: 13, background: "var(--bg-tertiary)", padding: 12, borderRadius: 6 }}>
+                    {detail.checklist.map((item, idx) => (
+                      <div key={item.id || idx} style={{
+                        padding: "4px 0",
+                        display: "flex",
+                        gap: 8,
+                        color: item.status === "done" ? "var(--accent-green)" : "var(--text-primary)",
+                      }}>
+                        <span>{item.status === "done" ? "\u2705" : item.status === "in_progress" ? "\uD83D\uDD04" : "\u2B1C"}</span>
+                        <span style={{ textDecoration: item.status === "done" ? "line-through" : "none", opacity: item.status === "done" ? 0.7 : 1 }}>
+                          {item.title}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Description */}
               {detail.description && (

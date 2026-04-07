@@ -112,11 +112,20 @@ class TaskBoard:
                 msg = f"Task {task_id} is not in IN_PROGRESS state: {task.state}"
                 raise ValueError(msg)
 
+            # Mark remaining checklist items as done
+            updated_checklist = []
+            for item in task.checklist:
+                if item.status != "done":
+                    updated_checklist.append(item.model_copy(update={"status": "done"}))
+                else:
+                    updated_checklist.append(item)
+
             self._tasks[task_id] = task.model_copy(
                 update={
                     "state": TaskState.DONE,
                     "result": result,
                     "completed_at": datetime.utcnow(),
+                    "checklist": updated_checklist,
                 }
             )
 

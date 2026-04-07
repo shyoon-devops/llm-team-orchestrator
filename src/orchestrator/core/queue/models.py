@@ -1,12 +1,15 @@
-"""Queue models — TaskState, TaskItem."""
+"""Queue models — TaskState, TaskItem, ChecklistItem."""
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from enum import StrEnum
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
+
+from orchestrator.core.utils import generate_id
 
 
 class TaskState(StrEnum):
@@ -25,6 +28,63 @@ class TaskState(StrEnum):
     IN_PROGRESS = "in_progress"
     DONE = "done"
     FAILED = "failed"
+
+
+class ChecklistItem(BaseModel):
+    """서브태스크 내의 체크리스트 항목."""
+
+    id: str = Field(default_factory=lambda: generate_id("chk"))
+    title: str = Field(..., max_length=200)
+    status: Literal["pending", "in_progress", "done", "skipped"] = "pending"
+    result: str = ""
+
+
+def extract_checklist(description: str) -> list[ChecklistItem]:
+    """description에서 번호 매겨진 항목을 체크리스트로 추출한다.
+
+    패턴: "1. ...", "2. ...", "- ...", "* ..."
+
+    Args:
+        description: 태스크 설명 텍스트.
+
+    Returns:
+        추출된 ChecklistItem 목록.
+    """
+    items: list[ChecklistItem] = []
+    for line in description.split("\n"):
+        line = line.strip()
+        # Match "1. text", "2. text", etc.
+        match = re.match(r"^(\d+)\.\s+(.+)$", line)
+        if match:
+            items.append(ChecklistItem(title=match.group(2).strip()))
+            continue
+        # Match "- text" or "* text" (only if inside a numbered section)
+        match = re.match(r"^[-*]\s+(.+)$", line)
+        if match and items:  # Only add bullets if we already have numbered items
+            items.append(ChecklistItem(title=match.group(1).strip()))
+    return items
+
+
+def update_checklist_from_result(
+    checklist: list[ChecklistItem], result: str
+) -> None:
+    """에이전트 결과에서 체크리스트 완료 상태를 업데이트한다.
+
+    결과 텍스트에서 각 체크리스트 항목의 완료 여부를 판별한다.
+    패턴: "완료 N번", "N번 완료", 또는 항목 제목의 앞 20자 포함.
+
+    Args:
+        checklist: 업데이트할 체크리스트 항목 목록.
+        result: 에이전트 실행 결과 텍스트.
+    """
+    for i, item in enumerate(checklist):
+        num = i + 1
+        if (
+            f"\u2705 {num}" in result
+            or f"\u2705 {num}\ubc88" in result
+            or item.title[:20] in result
+        ):
+            item.status = "done"
 
 
 class TaskItem(BaseModel):
@@ -98,6 +158,10 @@ class TaskItem(BaseModel):
     pipeline_id: str = Field(
         default="",
         description="이 태스크가 속한 Pipeline ID",
+    )
+    checklist: list[ChecklistItem] = Field(
+        default_factory=list,
+        description="서브태스크 체크리스트. description에서 자동 추출됨",
     )
     created_at: datetime = Field(
         default_factory=datetime.utcnow,

@@ -33,7 +33,7 @@ from orchestrator.core.planner.team_planner import TeamPlanner
 from orchestrator.core.presets.models import AgentPreset, TeamPreset
 from orchestrator.core.presets.registry import PresetRegistry
 from orchestrator.core.queue.board import TaskBoard
-from orchestrator.core.queue.models import TaskItem, TaskState
+from orchestrator.core.queue.models import TaskItem, TaskState, extract_checklist
 from orchestrator.core.queue.worker import AgentWorker
 from orchestrator.core.utils import generate_id
 from orchestrator.core.worktree.collector import FileDiffCollector
@@ -765,6 +765,7 @@ class OrchestratorEngine:
             # 서브태스크 → TaskItem 변환 + TaskBoard 투입
             for st in subtasks:
                 lane = st.assigned_preset or "default"
+                checklist = extract_checklist(st.description)
                 task_item = TaskItem(
                     id=st.id,
                     title=st.description[:200],
@@ -774,6 +775,7 @@ class OrchestratorEngine:
                     pipeline_id=task_id,
                     priority=st.priority,
                     max_retries=self.config.default_max_retries,
+                    checklist=checklist,
                 )
                 await self._board.submit(task_item)
                 await self._event_bus.emit(

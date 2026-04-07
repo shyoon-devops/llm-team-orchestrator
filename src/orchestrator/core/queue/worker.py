@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any
 import structlog
 
 from orchestrator.core.events.types import EventType, OrchestratorEvent
-from orchestrator.core.queue.models import TaskState
+from orchestrator.core.queue.models import TaskState, update_checklist_from_result
 
 if TYPE_CHECKING:
     from orchestrator.core.events.bus import EventBus
@@ -226,6 +226,15 @@ class AgentWorker:
                 depends_on=task.depends_on,
                 context_length=len(prompt) - len(task.description),
             )
+        # 체크리스트가 있으면 프롬프트에 주입
+        if task.checklist:
+            checklist_text = "\n".join(
+                f"{'[x]' if item.status == 'done' else '[ ]'} {item.title}"
+                for item in task.checklist
+            )
+            prompt += f"\n\n## 체크리스트 (순서대로 수행하세요)\n{checklist_text}\n"
+            prompt += "\n각 항목을 완료할 때마다 '\u2705 N번 완료' 형태로 표시해주세요.\n"
+
         # cwd가 있으면 작업 디렉토리 안내 추가
         cwd = getattr(self.executor, '_cwd', None)
         if not cwd:
@@ -358,6 +367,10 @@ class AgentWorker:
                             count=len(files),
                             files=files,
                         )
+
+                # 체크리스트 상태 업데이트
+                if task.checklist and result.output:
+                    update_checklist_from_result(task.checklist, result.output)
 
                 return result
             except Exception as exc:

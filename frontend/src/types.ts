@@ -59,6 +59,14 @@ export interface Pipeline {
   completed_at: string | null;
 }
 
+/** Checklist item within a subtask. */
+export interface ChecklistItem {
+  id: string;
+  title: string;
+  status: "pending" | "in_progress" | "done" | "skipped";
+  result: string;
+}
+
 /** TaskItem on the kanban board. */
 export interface TaskItem {
   id: string;
@@ -74,6 +82,7 @@ export interface TaskItem {
   retry_count: number;
   max_retries: number;
   pipeline_id: string;
+  checklist: ChecklistItem[];
 }
 
 /** Agent worker status. */

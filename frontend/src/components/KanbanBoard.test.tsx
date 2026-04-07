@@ -42,6 +42,7 @@ describe("KanbanBoard", () => {
               retry_count: 0,
               max_retries: 3,
               pipeline_id: "pipe-001",
+              checklist: [],
             },
           ],
           in_progress: [],

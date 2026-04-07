@@ -1,4 +1,4 @@
-import type { TaskState } from "../types";
+import type { ChecklistItem, TaskState } from "../types";
 import { extractTitle } from "../utils";
 
 export interface SubtaskInfo {
@@ -13,6 +13,7 @@ export interface SubtaskInfo {
   error: string;
   started_at: string | null;
   completed_at: string | null;
+  checklist?: ChecklistItem[];
 }
 
 interface SubtaskListProps {
@@ -47,6 +48,7 @@ export function SubtaskList({ subtasks, onSelect, selectedId }: SubtaskListProps
           <th>Lane</th>
           <th>Description</th>
           <th>Status</th>
+          <th>Checklist</th>
           <th>Elapsed</th>
         </tr>
       </thead>
@@ -64,6 +66,9 @@ export function SubtaskList({ subtasks, onSelect, selectedId }: SubtaskListProps
             <td>{extractTitle(st.description)}</td>
             <td>
               <span className={`status-badge ${st.state}`}>{st.state}</span>
+            </td>
+            <td style={{ fontSize: 11, color: "var(--text-muted)" }}>
+              {st.checklist?.length ? `${st.checklist.filter(c => c.status === "done").length}/${st.checklist.length}` : ""}
             </td>
             <td style={{ fontSize: 12, color: "var(--text-muted)" }}>
               {st.state === "in_progress" && <span className="subtask-spinner" />}
