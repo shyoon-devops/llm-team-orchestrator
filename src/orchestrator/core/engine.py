@@ -801,25 +801,28 @@ class OrchestratorEngine:
 
             lanes_needed: set[str] = {st.assigned_preset or "default" for st in subtasks}
             for lane in lanes_needed:
-                worker_id = f"worker-{task_id[:8]}-{lane}"
-                cwd = worktree_paths.get(lane)
-                executor = self._create_executor_for_preset(lane, cwd=cwd)
-                fallback_executors = self._create_fallback_executors(lane, cwd=cwd)
+                lane_tasks = [t for t in subtasks if (t.assigned_preset or "default") == lane]
+                num_workers = min(len(lane_tasks), self.config.max_workers_per_lane)
+                for i in range(num_workers):
+                    worker_id = f"worker-{task_id[:8]}-{lane}-{i}"
+                    cwd = worktree_paths.get(lane)
+                    executor = self._create_executor_for_preset(lane, cwd=cwd)
+                    fallback_executors = self._create_fallback_executors(lane, cwd=cwd)
 
-                worker = AgentWorker(
-                    worker_id=worker_id,
-                    lane=lane,
-                    board=self._board,
-                    executor=executor,
-                    event_bus=self._event_bus,
-                    poll_interval=0.2,
-                    show_output=self.config.show_cli_output,
-                    stream_output=self.config.stream_cli_output,
-                    fallback_executors=fallback_executors,
-                )
-                self._workers[worker_id] = worker
-                pipeline_workers.append(worker_id)
-                await worker.start()
+                    worker = AgentWorker(
+                        worker_id=worker_id,
+                        lane=lane,
+                        board=self._board,
+                        executor=executor,
+                        event_bus=self._event_bus,
+                        poll_interval=0.2,
+                        show_output=self.config.show_cli_output,
+                        stream_output=self.config.stream_cli_output,
+                        fallback_executors=fallback_executors,
+                    )
+                    self._workers[worker_id] = worker
+                    pipeline_workers.append(worker_id)
+                    await worker.start()
 
             # ── Phase 3: RUNNING — 모든 태스크 완료 대기 ─────────────────
             execution_start = time.monotonic()

@@ -1,15 +1,24 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { AgentStatusPanel } from "./AgentStatusPanel";
 import type { AgentStatus } from "../types";
 
 describe("AgentStatusPanel", () => {
-  it("renders empty state", () => {
+  it("renders collapsed by default with header", () => {
     render(<AgentStatusPanel agents={[]} />);
-    expect(screen.getByText("No active agents")).toBeInTheDocument();
+    expect(screen.getByText("Agents")).toBeInTheDocument();
+    // Panel body should NOT be visible (collapsed)
+    expect(screen.queryByText("No agents")).not.toBeInTheDocument();
   });
 
-  it("renders agent list", () => {
+  it("shows empty state when expanded with no agents", () => {
+    render(<AgentStatusPanel agents={[]} />);
+    // Click header to expand
+    fireEvent.click(screen.getByText("Agents"));
+    expect(screen.getByText("No agents")).toBeInTheDocument();
+  });
+
+  it("renders agent list when expanded", () => {
     const agents: AgentStatus[] = [
       {
         worker_id: "worker-abc-implementer",
@@ -19,6 +28,8 @@ describe("AgentStatusPanel", () => {
       },
     ];
     render(<AgentStatusPanel agents={agents} />);
+    // Click header to expand
+    fireEvent.click(screen.getByText("Agents"));
     expect(screen.getByText("worker-abc-implementer")).toBeInTheDocument();
     expect(screen.getByText("Lane: implementer")).toBeInTheDocument();
     expect(screen.getByText("running")).toBeInTheDocument();

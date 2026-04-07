@@ -1,5 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { submitTask } from "../hooks/useApi";
+
+interface TeamPresetOption {
+  name: string;
+  description: string;
+}
 
 interface TaskSubmitFormProps {
   onSubmitted: () => void;
@@ -8,6 +13,7 @@ interface TaskSubmitFormProps {
 /**
  * TaskSubmitForm: submit a new task with optional team_preset and target_repo.
  * Calls POST /api/tasks.
+ * Team preset is selected via dropdown fetched from GET /api/presets/teams.
  */
 export function TaskSubmitForm({ onSubmitted }: TaskSubmitFormProps) {
   const [task, setTask] = useState("");
@@ -15,6 +21,14 @@ export function TaskSubmitForm({ onSubmitted }: TaskSubmitFormProps) {
   const [targetRepo, setTargetRepo] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [teamPresets, setTeamPresets] = useState<TeamPresetOption[]>([]);
+
+  useEffect(() => {
+    fetch("/api/presets/teams")
+      .then((r) => r.json())
+      .then((data) => setTeamPresets(data.presets || []))
+      .catch(() => {});
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -53,13 +67,18 @@ export function TaskSubmitForm({ onSubmitted }: TaskSubmitFormProps) {
           </div>
           <div className="form-group">
             <label htmlFor="preset-input">Team Preset (optional)</label>
-            <input
+            <select
               id="preset-input"
-              type="text"
               value={teamPreset}
               onChange={(e) => setTeamPreset(e.target.value)}
-              placeholder="e.g., feature-team"
-            />
+            >
+              <option value="">None</option>
+              {teamPresets.map((p) => (
+                <option key={p.name} value={p.name}>
+                  {p.name}{p.description ? ` — ${p.description}` : ""}
+                </option>
+              ))}
+            </select>
           </div>
           <div className="form-group">
             <label htmlFor="repo-input">Target Repo (optional)</label>

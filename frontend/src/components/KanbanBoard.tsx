@@ -1,4 +1,6 @@
+import { useState } from "react";
 import type { BoardState, TaskState } from "../types";
+import { TaskDetailModal } from "./TaskDetailModal";
 
 interface KanbanBoardProps {
   board: BoardState | null;
@@ -15,8 +17,11 @@ const COLUMNS: { key: TaskState; label: string }[] = [
 /**
  * KanbanBoard: visualizes TaskBoard state with 5 columns.
  * Data comes from GET /api/board.
+ * Clicking a task card opens a detail modal.
  */
 export function KanbanBoard({ board }: KanbanBoardProps) {
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+
   if (!board) {
     return (
       <div className="panel kanban-board">
@@ -69,7 +74,12 @@ export function KanbanBoard({ board }: KanbanBoardProps) {
                 <span className="kanban-count">{columns[col.key].length}</span>
               </div>
               {columns[col.key].map((task) => (
-                <div key={task.id} className="kanban-card">
+                <div
+                  key={task.id}
+                  className="kanban-card"
+                  style={{ cursor: "pointer" }}
+                  onClick={() => setSelectedTaskId(task.id)}
+                >
                   <div className="kanban-card-title">
                     {(task.title.split("\n")[0] || "").slice(0, 50) + (task.title.length > 50 ? "..." : "")}
                   </div>
@@ -88,6 +98,13 @@ export function KanbanBoard({ board }: KanbanBoardProps) {
           ))}
         </div>
       </div>
+
+      {selectedTaskId && (
+        <TaskDetailModal
+          taskId={selectedTaskId}
+          onClose={() => setSelectedTaskId(null)}
+        />
+      )}
     </div>
   );
 }

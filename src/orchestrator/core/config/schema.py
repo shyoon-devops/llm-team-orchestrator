@@ -44,6 +44,12 @@ class OrchestratorConfig(BaseSettings):
         le=20,
         description="동시 실행 가능한 최대 에이전트 수",
     )
+    max_workers_per_lane: int = Field(
+        default=2,
+        ge=1,
+        le=10,
+        description="레인당 최대 워커 수",
+    )
     default_max_retries: int = Field(
         default=3,
         ge=0,

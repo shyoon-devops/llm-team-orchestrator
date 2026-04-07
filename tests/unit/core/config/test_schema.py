@@ -68,3 +68,15 @@ def test_execution_override():
     assert config.poll_interval == 2.0
     assert config.worktree_cleanup is False
     assert config.merge_strategy == "ours"
+
+
+def test_max_workers_per_lane_default():
+    """max_workers_per_lane 기본값은 2이다."""
+    config = OrchestratorConfig()
+    assert config.max_workers_per_lane == 2
+
+
+def test_max_workers_per_lane_override():
+    """max_workers_per_lane을 오버라이드할 수 있다."""
+    config = OrchestratorConfig(max_workers_per_lane=5)
+    assert config.max_workers_per_lane == 5
