@@ -581,6 +581,30 @@ class OrchestratorEngine:
         executor.cli_name = "claude"  # type: ignore[attr-defined]
         return executor
 
+    @staticmethod
+    def _deploy_mcp_config(lane: str, worktree_path: str) -> None:
+        """lane에 해당하는 .mcp.json을 worktree에 복사한다.
+
+        tools/mcp-configs/{lane}.mcp.json이 있으면 worktree/.mcp.json으로 복사.
+        없으면 빈 mcpServers로 생성 (MCP 도구 없음).
+        """
+        import shutil
+        from pathlib import Path
+
+        try:
+            project_root = Path(__file__).resolve().parent.parent.parent.parent
+            mcp_config_src = project_root / "tools" / "mcp-configs" / f"{lane}.mcp.json"
+            mcp_config_dst = Path(worktree_path) / ".mcp.json"
+
+            if mcp_config_src.exists():
+                shutil.copy2(mcp_config_src, mcp_config_dst)
+                logger.info("mcp_config_deployed", lane=lane, path=str(mcp_config_dst))
+            else:
+                mcp_config_dst.write_text('{"mcpServers":{}}')
+                logger.info("mcp_config_empty", lane=lane, path=str(mcp_config_dst))
+        except Exception:
+            logger.debug("mcp_config_skip", lane=lane)
+
     def _create_fallback_executors(
         self,
         preset_name: str,
@@ -714,6 +738,8 @@ class OrchestratorEngine:
                             worktree_paths[lane] = str(wt_path)
                             worktree_paths_by_branch[branch_name] = str(wt_path)
                             worktree_branches.append(branch_name)
+                            # lane별 .mcp.json 복사 (MCP 도구 격리)
+                            self._deploy_mcp_config(lane, str(wt_path))
                             await self._event_bus.emit(
                                 OrchestratorEvent(
                                     type=EventType.WORKTREE_CREATED,
@@ -761,6 +787,19 @@ class OrchestratorEngine:
                 )
 
             # AgentWorker 생성 및 시작 (레인별 1개)
+            # target_repo가 없는 경우 tempdir에 .mcp.json 배치
+            if not pipeline.target_repo:
+                import tempfile
+                for st in subtasks:
+                    lane = st.assigned_preset or "default"
+                    if lane not in worktree_paths:
+                        lane_dir = tempfile.mkdtemp(
+                            prefix=f"orch-{task_id.replace('pipeline-', '')[:8]}-{lane}-",
+                            dir=self.config.worktree_base_dir,
+                        )
+                        worktree_paths[lane] = lane_dir
+                        self._deploy_mcp_config(lane, lane_dir)
+
             lanes_needed: set[str] = {st.assigned_preset or "default" for st in subtasks}
             for lane in lanes_needed:
                 worker_id = f"worker-{task_id[:8]}-{lane}"

@@ -1,0 +1,1 @@
+{"mcpServers":{"istio-mock":{"command":"uv","args":["--directory","/home/yoon/repository/llm-team-orchestrator","run","python","tools/mcp-servers/istio_mcp.py"]}}}
