@@ -1,0 +1,129 @@
+# presets/teams/product-launch-team.yaml
+name: product-launch-team
+description: "SaaS 제품 출시 준비 팀 — CEO 지휘, 기획/디자인/인프라/재무/영업 병렬 분석 → CEO 종합"
+
+agents:
+  ceo:
+    preset: ceo
+  planner:
+    preset: planner
+  designer:
+    preset: designer
+  infra:
+    preset: infra-engineer
+  finance:
+    preset: finance
+  sales:
+    preset: sales
+
+tasks:
+  strategic-direction:
+    description: |
+      CEO로서 신규 SaaS 제품 출시에 대한 전략적 방향을 제시하라.
+
+      다음을 수행:
+      1. 제품 비전과 핵심 가치 제안(Value Proposition)을 정의
+      2. 타겟 시장과 고객 세그먼트를 식별
+      3. 각 부서에 구체적인 분석/준비 지시를 작성:
+         - 기획팀: 프로젝트 일정과 마일스톤
+         - 디자인팀: UI/UX 가이드와 핵심 화면 설계
+         - 인프라팀: 기술 인프라 아키텍처
+         - 재무팀: 비용 분석과 가격 전략
+         - 영업팀: GTM 전략과 영업 계획
+      4. 출시 일정 목표를 제시
+    agent: ceo
+    depends_on: []
+
+  project-plan:
+    description: |
+      CEO의 전략 방향에 따라 프로젝트 실행 계획을 수립하라.
+
+      MCP 도구 사용:
+      1. get_project_status로 현재 프로젝트 상태 확인
+      2. list_tasks로 태스크 현황 파악
+      3. get_sprint_summary로 스프린트 진행률 확인
+      4. get_risk_assessment로 리스크 식별
+
+      산출물: 마일스톤 일정표, 스프린트 계획, 리스크 대응 방안
+    agent: planner
+    depends_on: [strategic-direction]
+
+  ui-design:
+    description: |
+      CEO의 전략 방향에 따라 제품 UI/UX를 설계하라.
+
+      MCP 도구 사용:
+      1. get_design_system으로 디자인 시스템 확인
+      2. list_components로 기존 컴포넌트 파악
+      3. export_component_css로 스타일 추출
+
+      산출물: 핵심 화면 와이어프레임, 컴포넌트 목록, 디자인 가이드
+    agent: designer
+    depends_on: [strategic-direction]
+
+  infra-plan:
+    description: |
+      CEO의 전략 방향에 따라 기술 인프라를 설계하라.
+
+      MCP 도구 사용:
+      1. list_pods로 현재 클러스터 상태 확인
+      2. get_node_status로 리소스 현황 파악
+      3. get_service_metrics로 서비스 메시 상태 확인
+
+      산출물: 인프라 아키텍처, 스케일링 계획, 예상 리소스 비용
+    agent: infra
+    depends_on: [strategic-direction]
+
+  financial-analysis:
+    description: |
+      CEO의 전략 방향에 따라 재무 분석을 수행하라.
+
+      MCP 도구 사용:
+      1. get_revenue_report로 현재 매출 현황 확인
+      2. get_budget_status로 예산 현황 파악
+      3. calculate_pricing_roi로 가격 모델별 수익 시뮬레이션
+      4. get_cost_breakdown으로 비용 구조 분석
+
+      산출물: 손익 분석, 가격 전략 제안, 예산 할당 계획
+    agent: finance
+    depends_on: [strategic-direction]
+
+  gtm-strategy:
+    description: |
+      CEO의 전략 방향에 따라 Go-to-Market 전략을 수립하라.
+
+      MCP 도구 사용:
+      1. get_sales_pipeline로 현재 영업 파이프라인 확인
+      2. get_market_analysis로 시장 분석
+      3. get_customer_health로 기존 고객 현황 확인
+      4. get_gtm_metrics로 GTM 지표 분석
+
+      산출물: GTM 전략, 타겟 고객 세그먼트, 가격 포지셔닝, 영업 목표
+    agent: sales
+    depends_on: [strategic-direction]
+
+  executive-summary:
+    description: |
+      CEO로서 5개 부서의 분석 결과를 종합하여 최종 경영 보고서를 작성하라.
+
+      이전 단계 결과에서 전달받은 5개 보고서를 기반으로:
+
+      보고서 형식:
+      # 신규 SaaS 제품 출시 — 경영 보고서
+      ## Executive Summary
+      ## 1. 프로젝트 현황 (기획팀)
+      ## 2. 제품 디자인 (디자인팀)
+      ## 3. 기술 인프라 (인프라팀)
+      ## 4. 재무 분석 (재무팀)
+      ## 5. GTM 전략 (영업팀)
+      ## 6. 종합 의사결정
+      ### 즉시 실행 (P0)
+      ### 단기 실행 (P1, 2주 이내)
+      ### 중기 실행 (P2, 1개월 이내)
+      ## 7. 리스크 및 대응
+      ## 8. 다음 경영 회의 안건
+    agent: ceo
+    depends_on: [project-plan, ui-design, infra-plan, financial-analysis, gtm-strategy]
+
+workflow: dag
+synthesis_strategy: structured
