@@ -85,6 +85,26 @@ class CodexAdapter(CLIAdapter):
                 continue
 
             event_type = event.get("type", "")
+
+            # error / turn.failed → 즉시 에러 raise
+            if event_type == "error":
+                error_msg = event.get("message", "Unknown Codex error")
+                raise CLIExecutionError(
+                    f"Codex error: {error_msg}",
+                    cli=self.cli_name,
+                    stdout=stdout[:2000],
+                    stderr=stderr[:2000],
+                )
+            if event_type == "turn.failed":
+                error_info = event.get("error", {})
+                error_msg = error_info.get("message", "Turn failed") if isinstance(error_info, dict) else str(error_info)
+                raise CLIExecutionError(
+                    f"Codex turn failed: {error_msg}",
+                    cli=self.cli_name,
+                    stdout=stdout[:2000],
+                    stderr=stderr[:2000],
+                )
+
             if event_type in ("item.completed", "turn.completed"):
                 item = event.get("item", {})
                 if isinstance(item, dict):
