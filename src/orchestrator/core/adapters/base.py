@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
 import signal
 import time
@@ -153,10 +154,14 @@ class CLIAdapter(ABC):
                 stderr_str = stderr_bytes.decode() if stderr_bytes else ""
         except TimeoutError:
             # 프로세스 그룹 전체 kill (자식 프로세스 포함)
+            # watchdog이 이미 kill했을 수 있으므로 ProcessLookupError 무시
             try:
                 os.killpg(proc.pid, signal.SIGTERM)
             except (ProcessLookupError, PermissionError):
-                proc.kill()
+                try:
+                    proc.kill()
+                except ProcessLookupError:
+                    pass
             await proc.wait()
             raise CLITimeoutError(
                 f"{self.cli_name} timed out after {config.timeout}s",
@@ -178,26 +183,33 @@ class CLIAdapter(ABC):
     async def _stream_output(
         self,
         proc: asyncio.subprocess.Process,
-        timeout: float,
+        idle_timeout: float,
         on_output: OutputCallback,
     ) -> tuple[str, str]:
-        """stdout/stderr를 라인 단위로 비동기 읽기.
+        """stdout/stderr를 라인 단위로 비동기 읽기 (idle timeout 방식).
 
-        각 라인 수신 시 on_output 콜백을 호출한다.
-        두 스트림을 asyncio.gather로 동시 읽어 데드락을 방지한다.
+        각 라인 수신 시 on_output 콜백을 호출하고 활동 시간을 갱신한다.
+        마지막 출력 이후 idle_timeout초 동안 무활동이면 프로세스를 kill한다.
+        활발히 출력하는 프로세스는 시간 제한 없이 실행된다.
 
         Returns:
             (stdout_전체, stderr_전체) 튜플.
+
+        Raises:
+            TimeoutError: idle_timeout 초과 시.
         """
         stdout_lines: list[str] = []
         stderr_lines: list[str] = []
+        last_activity = time.monotonic()
 
         async def read_stream(
             stream: asyncio.StreamReader,
             target: list[str],
             stream_name: str,
         ) -> None:
+            nonlocal last_activity
             async for raw_line in stream:
+                last_activity = time.monotonic()
                 line = raw_line.decode(errors="replace").rstrip("\n\r")
                 target.append(line)
                 try:
@@ -205,13 +217,31 @@ class CLIAdapter(ABC):
                 except Exception:  # noqa: BLE001
                     pass  # 콜백 실패가 스트리밍을 중단하면 안 됨
 
-        await asyncio.wait_for(
-            asyncio.gather(
+        async def watchdog() -> None:
+            """idle_timeout 동안 무활동이면 프로세스를 kill한다."""
+            while True:
+                await asyncio.sleep(5)
+                idle = time.monotonic() - last_activity
+                if idle >= idle_timeout:
+                    try:
+                        os.killpg(proc.pid, signal.SIGTERM)
+                    except (ProcessLookupError, PermissionError):
+                        proc.kill()
+                    raise TimeoutError(
+                        f"No output for {idle_timeout}s (idle timeout)"
+                    )
+
+        watchdog_task = asyncio.create_task(watchdog())
+        try:
+            await asyncio.gather(
                 read_stream(proc.stdout, stdout_lines, "stdout"),
                 read_stream(proc.stderr, stderr_lines, "stderr"),
-            ),
-            timeout=timeout,
-        )
+            )
+        finally:
+            watchdog_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await watchdog_task
+
         await proc.wait()
         return "\n".join(stdout_lines), "\n".join(stderr_lines)
 

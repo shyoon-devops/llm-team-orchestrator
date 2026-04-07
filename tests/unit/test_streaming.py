@@ -35,7 +35,7 @@ async def test_stream_output_collects_stdout_lines(adapter):
         stderr=asyncio.subprocess.PIPE,
     )
     callback = AsyncMock()
-    stdout, stderr = await adapter._stream_output(proc, timeout=5, on_output=callback)
+    stdout, stderr = await adapter._stream_output(proc, idle_timeout=5, on_output=callback)
     assert stdout == "line1\nline2\nline3"
 
 
@@ -48,7 +48,7 @@ async def test_stream_output_collects_stderr_lines(adapter):
         stderr=asyncio.subprocess.PIPE,
     )
     callback = AsyncMock()
-    stdout, stderr = await adapter._stream_output(proc, timeout=5, on_output=callback)
+    stdout, stderr = await adapter._stream_output(proc, idle_timeout=5, on_output=callback)
     assert "err1" in stderr
     assert "err2" in stderr
 
@@ -62,7 +62,7 @@ async def test_stream_output_calls_callback_per_line(adapter):
         stderr=asyncio.subprocess.PIPE,
     )
     callback = AsyncMock()
-    await adapter._stream_output(proc, timeout=5, on_output=callback)
+    await adapter._stream_output(proc, idle_timeout=5, on_output=callback)
 
     assert callback.call_count == 3
     callback.assert_any_call("a", "stdout")
@@ -79,7 +79,7 @@ async def test_stream_output_callback_receives_stream_name(adapter):
         stderr=asyncio.subprocess.PIPE,
     )
     callback = AsyncMock()
-    await adapter._stream_output(proc, timeout=5, on_output=callback)
+    await adapter._stream_output(proc, idle_timeout=5, on_output=callback)
 
     streams = [call.args[1] for call in callback.call_args_list]
     assert "stdout" in streams
@@ -87,20 +87,19 @@ async def test_stream_output_callback_receives_stream_name(adapter):
 
 
 @pytest.mark.asyncio
-async def test_stream_output_timeout_kills_process(adapter):
-    """타임아웃 시 TimeoutError가 발생한다."""
+async def test_stream_output_idle_timeout_kills_process(adapter):
+    """무활동 시 idle timeout이 발동한다."""
     proc = await asyncio.create_subprocess_exec(
         "sleep", "100",
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        start_new_session=True,
     )
     callback = AsyncMock()
 
-    with pytest.raises(TimeoutError):
-        await adapter._stream_output(proc, timeout=0.5, on_output=callback)
+    with pytest.raises(TimeoutError, match="idle timeout"):
+        await adapter._stream_output(proc, idle_timeout=6, on_output=callback)
 
-    # cleanup
-    proc.kill()
     await proc.wait()
 
 
@@ -113,11 +112,60 @@ async def test_stream_output_callback_error_does_not_stop_streaming(adapter):
         stderr=asyncio.subprocess.PIPE,
     )
     callback = AsyncMock(side_effect=RuntimeError("boom"))
-    stdout, _ = await adapter._stream_output(proc, timeout=5, on_output=callback)
+    stdout, _ = await adapter._stream_output(proc, idle_timeout=5, on_output=callback)
 
     # 콜백 에러에도 불구하고 모든 라인 수집됨
     assert stdout == "x\ny\nz"
     assert callback.call_count == 3
+
+
+@pytest.mark.asyncio
+async def test_stream_output_idle_reset_on_activity(adapter):
+    """출력이 계속 오면 idle timeout이 리셋되어 타임아웃되지 않는다."""
+    # 1초 간격으로 3줄 출력 (총 3초), idle_timeout=6초
+    proc = await asyncio.create_subprocess_exec(
+        "bash", "-c", "for i in 1 2 3; do echo $i; sleep 1; done",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        start_new_session=True,
+    )
+    callback = AsyncMock()
+    stdout, _ = await adapter._stream_output(proc, idle_timeout=6, on_output=callback)
+    assert callback.call_count == 3
+    assert "1" in stdout
+
+
+@pytest.mark.asyncio
+async def test_stream_output_idle_timeout_after_silence(adapter):
+    """출력 후 침묵하면 idle timeout이 발동한다."""
+    # 1줄 출력 후 100초 대기
+    proc = await asyncio.create_subprocess_exec(
+        "bash", "-c", "echo hello; sleep 100",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        start_new_session=True,
+    )
+    callback = AsyncMock()
+    with pytest.raises(TimeoutError):
+        await adapter._stream_output(proc, idle_timeout=6, on_output=callback)
+    # "hello" 라인은 수신됨
+    callback.assert_any_call("hello", "stdout")
+    await proc.wait()
+
+
+@pytest.mark.asyncio
+async def test_stream_output_active_process_no_timeout(adapter):
+    """계속 출력하는 프로세스는 idle timeout보다 오래 실행해도 안 죽는다."""
+    # 0.5초 간격으로 8줄 출력 (총 4초), idle_timeout=6초
+    proc = await asyncio.create_subprocess_exec(
+        "bash", "-c", "for i in 1 2 3 4 5 6 7 8; do echo line$i; sleep 0.5; done",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        start_new_session=True,
+    )
+    callback = AsyncMock()
+    stdout, _ = await adapter._stream_output(proc, idle_timeout=6, on_output=callback)
+    assert callback.call_count == 8
 
 
 # --- run() on_output 분기 tests ---
@@ -149,9 +197,9 @@ async def test_run_with_callback_uses_stream(adapter, config, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_run_streaming_timeout_raises_cli_timeout(config, monkeypatch):
-    """스트리밍 모드에서 타임아웃 시 CLITimeoutError."""
+    """스트리밍 모드에서 idle timeout 시 CLITimeoutError."""
     adapter = ClaudeAdapter()
-    short_config = config.model_copy(update={"timeout": 1})
+    short_config = config.model_copy(update={"timeout": 6})
     monkeypatch.setattr(
         adapter, "_build_command",
         lambda *a, **kw: ["sleep", "100"],
