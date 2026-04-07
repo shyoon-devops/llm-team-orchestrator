@@ -2,6 +2,7 @@ import { useState } from "react";
 import { AgentStatusPanel } from "./components/AgentStatusPanel";
 import { EventLog } from "./components/EventLog";
 import { KanbanBoard } from "./components/KanbanBoard";
+import { LiveOutput } from "./components/LiveOutput";
 import { PipelineDetail } from "./components/PipelineDetail";
 import { PipelineList } from "./components/PipelineList";
 import { ResultViewer } from "./components/ResultViewer";
@@ -55,6 +56,10 @@ export function App() {
           <TaskSubmitForm onSubmitted={refresh} />
           <AgentStatusPanel agents={agents} />
           <EventLog events={events} connected={connected} onClear={clearEvents} />
+          <LiveOutput
+            events={events}
+            taskId={selectedPipeline?.task_id}
+          />
         </div>
 
         {selectedPipeline && (

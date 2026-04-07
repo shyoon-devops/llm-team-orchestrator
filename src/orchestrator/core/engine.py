@@ -739,6 +739,7 @@ class OrchestratorEngine:
                     event_bus=self._event_bus,
                     poll_interval=0.2,
                     show_output=self.config.show_cli_output,
+                    stream_output=self.config.stream_cli_output,
                 )
                 self._workers[worker_id] = worker
                 pipeline_workers.append(worker_id)

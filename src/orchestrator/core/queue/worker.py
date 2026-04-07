@@ -39,6 +39,7 @@ class AgentWorker:
         *,
         poll_interval: float = 1.0,
         show_output: bool = False,
+        stream_output: bool = True,
     ) -> None:
         """
         Args:
@@ -49,6 +50,7 @@ class AgentWorker:
             event_bus: 이벤트 발행기.
             poll_interval: 태스크 폴링 간격 (초).
             show_output: CLI stdout 실시간 표시 여부.
+            stream_output: CLI 출력을 AGENT_OUTPUT 이벤트로 스트리밍 여부.
         """
         self.worker_id = worker_id
         self.lane = lane
@@ -57,6 +59,7 @@ class AgentWorker:
         self.event_bus = event_bus
         self.poll_interval = poll_interval
         self._show_output = show_output
+        self._stream_output = stream_output
         self._running = False
         self._task: asyncio.Task[None] | None = None
         self._tasks_completed = 0
@@ -264,7 +267,7 @@ class AgentWorker:
                 )
             )
 
-        if hasattr(self.executor, "_on_output"):
+        if self._stream_output and hasattr(self.executor, "_on_output"):
             self.executor._on_output = _on_cli_output
 
         exec_task = asyncio.create_task(

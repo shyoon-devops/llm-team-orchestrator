@@ -132,6 +132,10 @@ class OrchestratorConfig(BaseSettings):
         default=False,
         description="CLI stdout 실시간 표시",
     )
+    stream_cli_output: bool = Field(
+        default=True,
+        description="CLI stdout/stderr를 라인 단위로 스트리밍하여 AGENT_OUTPUT 이벤트 발행",
+    )
 
     # === Git Worktree ===
     worktree_base_dir: str = Field(
